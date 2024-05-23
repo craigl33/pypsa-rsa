@@ -7,6 +7,8 @@ channels:
 - conda-forge
 - bioconda
 - gurobi
+- nrel
+
 dependencies:
 - python>=3.8
 - pip
@@ -18,6 +20,7 @@ dependencies:
 - powerplantmatching>=0.5.7
 - earth-osm>=0.1.0
 - atlite
+- nrel-pysam
 
   # Dependencies of the workflow itself
 - xlrd
