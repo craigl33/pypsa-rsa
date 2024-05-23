@@ -35,6 +35,12 @@ from _helpers import (
     apply_default_attr
 )
 
+from prepare_and_solve_network import (
+    set_operational_limits,
+    ccgt_steam_constraints,
+    rmippp_constraints,
+)
+
 def get_min_stable_level(n, model_file, model_setup, existing_carriers, extended_carriers):
     
     existing_param = pd.read_excel(
@@ -195,12 +201,12 @@ if __name__ == "__main__":
         snakemake = mock_snakemake(
             'solve_network_dispatch', 
             **{
-                'model_file':'val-LC-UNC',
-                'regions':'1-supply',
+                'model_file':'TEST',
+                'regions':'1',
                 'resarea':'redz',
                 'll':'copt',
                 'opts':'LC',
-                'years':'all',
+                'years':'2024',
             }
         )
     n = pypsa.Network(snakemake.input.network)

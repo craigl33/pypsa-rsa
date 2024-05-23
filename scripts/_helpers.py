@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText:  PyPSA-ZA2, PyPSA-ZA, PyPSA-Earth and PyPSA-Eur Authors
+# SPDX-FileCopyrightText:  PyPSA-RSA, PyPSA-ZA, PyPSA-Earth and PyPSA-Eur Authors
 # # SPDX-License-Identifier: MIT
 # -*- coding: utf-8 -*-
 
@@ -11,6 +11,7 @@ import pandas as pd
 
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense
 from pypsa.descriptors import get_activity_mask, get_active_assets
+from pypsa.io import import_components_from_dataframe
 
 """
 List of general helper functions
@@ -22,17 +23,12 @@ def configure_logging(snakemake, skip_handlers=False):
     Configure the basic behaviour for the logging module.
 
     Note: Must only be called once from the __main__ section of a script.
-
-    The setup includes printing log messages to STDERR and to a log file defined
-    by either (in priority order): snakemake.log.python, snakemake.log[0] or "logs/{rulename}.log".
-    Additional keywords from logging.basicConfig are accepted via the snakemake configuration
-    file under snakemake.config.logging.
-
-    Parameters
-    ----------
-    snakemake : snakemake object
-        Your snakemake object containing a snakemake.config and snakemake.log.
-    skip_handlers : True | False (default)
+if not os.path.exists(folder_name):
+    # If it doesn't exist, create it
+    os.makedirs(folder_name)
+    print(f"Folder '{folder_name}' was created.")
+else:
+    print(f"Folder '{folder_name}' already exists.")lse (default)
         Do (not) skip the default handlers created for redirecting output to STDERR and file.
     """
 
@@ -70,14 +66,15 @@ List of cost related functions
 """
 
 
-def _add_missing_carriers_from_costs(n, costs, carriers):
-    start_year = n.snapshots.get_level_values(0)[0] if n.multi_invest else n.snapshots[0].year
-    missing_carriers = pd.Index(carriers).difference(n.carriers.index)
-    if missing_carriers.empty: return
+def add_missing_carriers(n):
+    all_carriers = (
+        list(n.generators.carrier.unique()) 
+        + list(n.storage_units.carrier.unique()) 
+        + list(n.links.carrier.unique())
+    )
 
-    emissions = costs.loc[("co2_emissions",missing_carriers),start_year]
-    emissions.index = emissions.index.droplevel(0)
-    n.madd("Carrier", missing_carriers, co2_emissions=emissions)
+    missing_carriers = pd.Index(all_carriers).difference(n.carriers.index)
+    n.madd("Carrier", missing_carriers)
 
 """
 List of IO functions
@@ -215,6 +212,26 @@ def load_disaggregate(v, h):
     return pd.DataFrame(
         v.values.reshape((-1, 1)) * h.values, index=v.index, columns=h.index
     )
+
+def load_scenario_definition(snakemake):
+
+    script_dir = Path(__file__).parent.resolve()
+    prefix = ".." if Path.cwd().resolve() == script_dir else ""
+
+    scenario_folder =  os.path.join(
+            prefix,
+            "scenarios",
+            snakemake.config["scenarios"]["folder"]
+    )
+
+    scenario_setup = load_scenario_setup(
+        os.path.join(scenario_folder, snakemake.config["scenarios"]["setup"]), 
+        snakemake.wildcards.scenario
+    )
+    scenario_setup["path"] = scenario_folder
+    scenario_setup["sub_path"] = scenario_folder + "/sub_scenarios"
+
+    return scenario_setup
 
 def load_network_for_plots(fn, model_file, config, model_setup_costs, combine_hydro_ps=True, ):
     import pypsa
@@ -630,15 +647,9 @@ def convert_cost_units(costs, USD_ZAR, EUR_ZAR):
     costs.loc[costs.unit.str.contains("R/GJ")==True, 'unit'] = 'R/MWhe' 
     return costs
 
-def map_component_parameters(gens, first_year):
-    ps_f = dict(
-        PHS_efficiency="PHS Efficiency (%)",
-        PHS_units="PHS Units",
-        PHS_load="PHS Load per unit (MW)",
-        PHS_max_hours="PHS - Max Storage (GWh)"
-    )
-    csp_f = dict(CSP_max_hours='CSP Storage (hours)')
-    g_f = dict(
+def map_component_parameters(tech, first_year, tech_flag):
+
+    rename_dict = dict(
         fom = "Fixed O&M Cost (R/kW/yr)",
         p_nom = 'Capacity (MW)',
         name ='Power Station Name',
@@ -651,10 +662,10 @@ def map_component_parameters(gens, first_year):
         heat_rate = 'Heat Rate (GJ/MWh)',
         fuel_price = 'Fuel Price (R/GJ)',
         vom = 'Variable O&M Cost (R/MWh)',
-        max_ramp_up = 'Max Ramp Up (MW/min)',
-        max_ramp_down = 'Max Ramp Down (MW/min)',
-        max_ramp_start_up = 'Max Ramp Start Up (MW/min)',
-        max_ramp_shut_down = 'Max Ramp Shut Down (MW/min)',
+        max_ramp_up = 'Max Ramp Up (%/h)',
+        max_ramp_down = 'Max Ramp Down (%/h)',
+        max_ramp_start_up = 'Max Ramp Start Up (%/h)',
+        max_ramp_shut_down = 'Max Ramp Shut Down (%/h)',
         start_up_cost = 'Start Up Cost (R)',
         shut_down_cost = 'Shut Down Cost (R)',
         p_min_pu = 'Min Stable Level (%)',
@@ -664,47 +675,42 @@ def map_component_parameters(gens, first_year):
         units = 'Number units',
         maint_rate = 'Typical annual maintenance rate (%)',
         out_rate = 'Typical annual forced outage rate (%)',
+        st_efficiency="Round Trip Efficiency (%)",
+        max_hours="Max Storage (hours)",
+        CSP_max_hours='CSP Storage (hours)'
     )
 
-    # Calculate fields where pypsa uses different conventions
-    gens['efficiency'] = (3.6/gens.pop(g_f['heat_rate'])).fillna(1)
-    gens['marginal_cost'] = (3.6*gens.pop(g_f['fuel_price'])/gens['efficiency']).fillna(0) + gens.pop(g_f['vom'])
-    gens['capital_cost'] = 1e3*gens.pop(g_f['fom'])
-    gens['ramp_limit_up'] = 60*gens.pop(g_f['max_ramp_up'])/gens[g_f['unit_size']]
-    gens['ramp_limit_down'] = 60*gens.pop(g_f['max_ramp_down'])/gens[g_f['unit_size']]    
+    if tech_flag == 'Generator':
+        tech['efficiency'] = (3.6/tech.pop(rename_dict['heat_rate'])).fillna(1)
+        tech['ramp_limit_up'] = tech.pop(rename_dict['max_ramp_up'])
+        tech['ramp_limit_down'] = tech.pop(rename_dict['max_ramp_down'])     
+        tech['ramp_limit_start_up'] = tech.pop(rename_dict['max_ramp_start_up'])
+        tech['ramp_limit_shut_down'] = tech.pop(rename_dict['max_ramp_shut_down'])    
+        tech['start_up_cost'] = tech.pop(rename_dict['start_up_cost']).fillna(0)
+        tech['shut_down_cost'] = tech.pop(rename_dict['shut_down_cost']).fillna(0)
+        tech['min_up_time'] = tech.pop(rename_dict['min_up_time']).fillna(0)
+        tech['min_down_time'] = tech.pop(rename_dict['min_down_time']).fillna(0)
+        tech['marginal_cost'] = (3.6*tech.pop(rename_dict['fuel_price'])/tech['efficiency']).fillna(0) + tech.pop(rename_dict['vom'])
+    else:
+        tech["efficiency"] = tech.pop(rename_dict["st_efficiency"])
+        tech["max_hours"] = tech.pop(rename_dict["max_hours"])
+        tech['marginal_cost'] = tech.pop(rename_dict['vom'])
+
     
-    # unit commitment parameters
-    gens['ramp_limit_start_up'] = 60*gens.pop(g_f['max_ramp_start_up'])/gens[g_f['unit_size']]
-    gens['ramp_limit_shut_down'] = 60*gens.pop(g_f['max_ramp_shut_down'])/gens[g_f['unit_size']]    
-    gens['start_up_cost'] = gens.pop(g_f['start_up_cost']).fillna(0)
-    gens['shut_down_cost'] = gens.pop(g_f['shut_down_cost']).fillna(0)
-    gens['min_up_time'] = gens.pop(g_f['min_up_time']).fillna(0)
-    gens['min_down_time'] = gens.pop(g_f['min_down_time']).fillna(0)
+    tech['capital_cost'] = 1e3*tech.pop(rename_dict['fom'])
+    tech = tech.rename(
+        columns={rename_dict[f]: f for f in {'p_nom', 'name', 'carrier', 'x', 'y','build_year','decom_date','p_min_pu'}}
+    )
 
-    gens = gens.rename(
-        columns={g_f[f]: f for f in {'p_nom', 'name', 'carrier', 'x', 'y','build_year','decom_date','p_min_pu'}})
-    gens = gens.rename(columns={ps_f[f]: f for f in {'PHS_efficiency','PHS_max_hours'}})    
-    gens = gens.rename(columns={csp_f[f]: f for f in {'CSP_max_hours'}})     
+    tech['build_year'] = tech['build_year'].fillna(first_year-1).values
+    tech['decom_date'] = tech['decom_date'].replace({'beyond 2050': 2051}).values
+    tech['lifetime'] = tech['decom_date'] - tech['build_year']
 
-    gens['build_year'] = gens['build_year'].fillna(first_year).values
-    gens['decom_date'] = gens['decom_date'].replace({'beyond 2050': 2051}).values
-    gens['lifetime'] = gens['decom_date'] - gens['build_year']
-
-    return gens
+    return tech
 
 def remove_leap_day(df):
     return df[~((df.index.month == 2) & (df.index.day == 29))]
     
-def clean_pu_profiles(n):
-    pu_index = n.generators_t.p_max_pu.columns.intersection(n.generators_t.p_min_pu.columns)
-    for carrier in n.generators_t.p_min_pu.columns:
-        if carrier in pu_index:
-            error_loc=n.generators_t.p_min_pu[carrier][n.generators_t.p_min_pu[carrier]>n.generators_t.p_max_pu[carrier]].index
-            n.generators_t.p_min_pu.loc[error_loc,carrier]=n.generators_t.p_max_pu.loc[error_loc,carrier]
-        else:
-            error_loc=n.generators_t.p_min_pu[carrier][n.generators_t.p_min_pu[carrier]>n.generators.p_max_pu[carrier]].index
-            n.generators_t.p_min_pu.loc[error_loc,carrier]=n.generators.p_max_pu.loc[carrier]
-
 def save_to_geojson(df, fn):
     if os.path.exists(fn):
         os.unlink(fn)  # remove file if it exists
@@ -776,11 +782,11 @@ def initial_ramp_rate_fix(n):
         new_build = n.generators.query("build_year <= @y & build_year > @y_prev").index
 
         gens_up = new_build[limit_up[new_build]]
-        n.generators_t.ramp_limit_up[gens_up] = ramp_up_dense[gens_up]
+        n.generators_t.ramp_limit_up.loc[:, gens_up] = ramp_up_dense.loc[:, gens_up]
         n.generators_t.ramp_limit_up.loc[first_sns, gens_up] = np.maximum(p_min_pu_dense.loc[first_sns, gens_up], ramp_up_dense.loc[first_sns, gens_up])
         
         gens_down = new_build[limit_down[new_build]]
-        n.generators_t.ramp_limit_down[gens_down] = ramp_down_dense[gens_down]
+        n.generators_t.ramp_limit_down.loc[:,gens_down] = ramp_down_dense.loc[:, gens_down]
         n.generators_t.ramp_limit_down.loc[first_sns, gens_down] = np.maximum(p_min_pu_dense.loc[first_sns, gens_up], ramp_up_dense.loc[first_sns, gens_up])
 
 
@@ -816,3 +822,234 @@ def apply_default_attr(df, attrs):
         df[attr] = df[attr].fillna(conv_type[default_attrs.loc[attr, "type"]](default))
     
     return df
+
+def add_noise(df, std_dev, steps):
+    noise = pd.Series(index=df.index, dtype=float)
+    idxs = noise.iloc[::steps].index
+    noise.loc[idxs] = df.loc[idxs] + np.random.normal(loc=0, scale=std_dev, size=len(idxs))
+    return noise.interpolate()
+
+def get_carriers_from_model_file(scenario_setup):
+
+    carriers = {
+        "fixed":{
+            "conventional":[],
+            "renewables":[],
+            "storage":[],
+            },
+        "extendable":{
+            "conventional":[],
+            "renewables":[],
+            "storage":[],
+            }
+    }
+    
+    for tech in ["conventional", "renewables", "storage"]:
+        carriers["fixed"][tech] = list(pd.read_excel(
+            os.path.join(scenario_setup["sub_path"],"fixed_technologies.xlsx"),
+            sheet_name=f"{tech}",
+            na_values=["-"],
+            index_col=[0,1]
+        ).loc[scenario_setup[f"fixed_{tech}"]]["Carrier"].unique())
+
+    ext_carriers = (
+        pd.read_excel(
+            os.path.join(scenario_setup["sub_path"],"extendable_technologies.xlsx"), 
+            sheet_name='active',
+            index_col=[0,1,2],
+    ))[scenario_setup["extendable_techs"]]
+
+    ext_carriers = ext_carriers[ext_carriers==True].reset_index()
+    ext_carriers= ext_carriers.drop_duplicates(subset='Carrier', keep='first').reset_index()[["Carrier", "Category"]]
+
+
+    ext_carriers.set_index("Category", inplace=True)
+    for tech in ["conventional", "renewables", "storage"]:
+        carriers["extendable"][tech] = list(ext_carriers.loc[tech].Carrier.unique()) if len(ext_carriers.loc[tech])>1 else ext_carriers.loc[tech].Carrier
+
+    return carriers
+
+
+def check_folder(path):
+    # Check if the folder exists, if not create the folder
+    if not os.path.exists(path):
+        os.makedirs(path)
+        print(f"Folder '{path}' created.")
+
+
+def load_scenario_setup(scenarios_file, scenario):
+    scenario_setup = (
+        pd.read_excel(
+            scenarios_file, 
+            sheet_name="scenario_definition",
+            index_col=[0])
+            .loc[scenario]
+    )
+    return scenario_setup
+
+
+# Temp PyPSA fix ahead of master
+def single_year_network_copy(
+    n,
+    snapshots=None,
+    investment_periods=None,
+    ignore_standard_types=False,
+):
+    """
+    Returns a deep copy of the Network object with all components and time-
+    dependent data.
+
+    Returns
+    --------
+    network : pypsa.Network
+
+    Parameters
+    ----------
+    with_time : boolean, default True
+        Copy snapshots and time-varying network.component_names_t data too.
+    snapshots : list or index slice
+        A list of snapshots to copy, must be a subset of
+        network.snapshots, defaults to network.snapshots
+    ignore_standard_types : boolean, default False
+        Ignore the PyPSA standard types.
+
+    Examples
+    --------
+    >>> network_copy = network.copy()
+    """
+    (
+        override_components,
+        override_component_attrs,
+    ) = n._retrieve_overridden_components()
+
+    network = n.__class__(
+        ignore_standard_types=ignore_standard_types,
+        override_components=override_components,
+        override_component_attrs=override_component_attrs,
+    )
+
+    other_comps = sorted(n.all_components - {"Bus", "Carrier"})
+    for component in n.iterate_components(["Bus", "Carrier"] + other_comps):
+        df = component.df
+        # drop the standard types to avoid them being read in twice
+        if (
+            not ignore_standard_types
+            and component.name in n.standard_type_components
+        ):
+            df = component.df.drop(
+                network.components[component.name]["standard_types"].index
+            )
+        if investment_periods is not None:
+            df = df.loc[n.get_active_assets(component.name, investment_periods)]
+        import_components_from_dataframe(network, df, component.name)
+
+    if snapshots is None:
+        snapshots = n.snapshots
+    if investment_periods is None:
+        investment_periods = n.investment_period_weightings.index
+    network.set_snapshots(snapshots)
+    if not investment_periods.empty:
+        network.set_investment_periods(investment_periods)
+    for component in n.iterate_components():
+        pnl = getattr(network, component.list_name + "_t")
+        for k in component.pnl.keys():
+            if component.name in ["Generator", "Link", "StorageUnit", "Store"]:
+                active = n.df(component.name)[n.get_active_assets(component.name, investment_periods)].index
+                active = component.pnl[k].columns.intersection(active)
+                pnl[k] = component.pnl[k].loc[snapshots,active].copy()
+            else:
+                pnl[k] = component.pnl[k].loc[snapshots].copy()
+    network.snapshot_weightings = n.snapshot_weightings.loc[snapshots].copy()
+    network.investment_period_weightings = (
+        n.investment_period_weightings.loc[investment_periods].copy()
+    )
+
+    # catch all remaining attributes of network
+    for attr in ["name", "srid"]:
+        setattr(network, attr, getattr(n, attr))
+
+    return network
+
+
+
+# Not needed once PyPSA main is updated
+def single_year_network_copy(
+    n,
+    snapshots=None,
+    investment_periods=None,
+    ignore_standard_types=False,
+):
+    """
+    Returns a deep copy of the Network object with all components and time-
+    dependent data.
+
+    Returns
+    --------
+    network : pypsa.Network
+
+    Parameters
+    ----------
+    with_time : boolean, default True
+        Copy snapshots and time-varying network.component_names_t data too.
+    snapshots : list or index slice
+        A list of snapshots to copy, must be a subset of
+        network.snapshots, defaults to network.snapshots
+    ignore_standard_types : boolean, default False
+        Ignore the PyPSA standard types.
+
+    Examples
+    --------
+    >>> network_copy = network.copy()
+    """
+    (
+        override_components,
+        override_component_attrs,
+    ) = n._retrieve_overridden_components()
+
+    network = n.__class__(
+        ignore_standard_types=ignore_standard_types,
+        override_components=override_components,
+        override_component_attrs=override_component_attrs,
+    )
+
+    other_comps = sorted(n.all_components - {"Bus", "Carrier"})
+    for component in n.iterate_components(["Bus", "Carrier"] + other_comps):
+        df = component.df
+        # drop the standard types to avoid them being read in twice
+        if (
+            not ignore_standard_types
+            and component.name in n.standard_type_components
+        ):
+            df = component.df.drop(
+                network.components[component.name]["standard_types"].index
+            )
+        if investment_periods is not None:
+            df = df.loc[n.get_active_assets(component.name, investment_periods)]
+        import_components_from_dataframe(network, df, component.name)
+
+    if snapshots is None:
+        snapshots = n.snapshots
+    if investment_periods is None:
+        investment_periods = n.investment_period_weightings.index
+    network.set_snapshots(snapshots)
+    if not investment_periods.empty:
+        network.set_investment_periods(investment_periods)
+    for component in n.iterate_components():
+        pnl = getattr(network, component.list_name + "_t")
+        for k in component.pnl.keys():
+            if component.name in ["Generator", "Link", "StorageUnit", "Store"]:
+                active = n.df(component.name)[n.get_active_assets(component.name, investment_periods)].index
+                active = component.pnl[k].columns.intersection(active)
+                pnl[k] = component.pnl[k].loc[snapshots,active].copy()
+            else:
+                pnl[k] = component.pnl[k].loc[snapshots].copy()
+    network.snapshot_weightings = n.snapshot_weightings.loc[snapshots].copy()
+    network.investment_period_weightings = (
+        n.investment_period_weightings.loc[investment_periods].copy()
+    )
+
+    # catch all remaining attributes of network
+    for attr in ["name", "srid"]:
+        setattr(network, attr, getattr(n, attr))
+
+    return network

@@ -1,4 +1,4 @@
-date,wind,solar_pv,solar_csp,hydro,hydro_import,biomass
+date,wind,solar_pv,solar_csp,hydro,hydro_import,bioenergy
 time (SAST),normalised feed-in [MW/MW],normalised feed-in [MW/MW],normalised feed-in [MW/MW],normalised feed-in [MW/MW],normalised feed-in [MW/MW],normalised feed-in [MW/MW]
 2018/04/01 00:00,0.21897272,0,0.058516667,0.6,0.634560907,0.575711662
 2018/04/01 01:00,0.18912943,0,0.130436667,0.6,0.626628895,0.569513315

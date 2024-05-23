@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText:  PyPSA-ZA2, PyPSA-ZA, PyPSA-Earth and PyPSA-Eur Authors
+# SPDX-FileCopyrightText:  PyPSA-RSA, PyPSA-ZA, PyPSA-Earth and PyPSA-Eur Authors
 # # SPDX-License-Identifier: MIT
 
 # coding: utf-8
@@ -99,26 +99,32 @@ import pandas as pd
 import pypsa
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense, get_activity_mask
 from pypsa.io import import_components_from_dataframe
+import os
 from shapely.geometry import Point
+import xarray as xr
 import warnings
-warnings.simplefilter(action="ignore", category=FutureWarning) # Comment out for debugging and development
+warnings.simplefilter(action="ignore") # Comment out for debugging and development
 
 
 from _helpers import (
-    _add_missing_carriers_from_costs,
-    convert_cost_units,
-    load_disaggregate, 
-    map_component_parameters, 
-    read_and_filter_generators,
-    remove_leap_day,
-    drop_non_pypsa_attrs,
-    normed,
-    get_start_year,
-    get_snapshots,
-    get_investment_periods,
+    add_missing_carriers,
+    add_noise,
     adjust_by_p_max_pu,
     apply_default_attr,
+    convert_cost_units,
+    drop_non_pypsa_attrs,
+    get_carriers_from_model_file,
+    get_investment_periods,
+    get_snapshots,
+    get_start_year,
     initial_ramp_rate_fix,
+    load_disaggregate, 
+    map_component_parameters, 
+    normed,
+    read_and_filter_generators,
+    remove_leap_day,
+    single_year_network_copy,
+    load_scenario_definition
 )
 
 """
@@ -143,16 +149,33 @@ def annualise_costs(investment, lifetime, discount_rate, FOM):
     CRF = discount_rate / (1 - 1 / (1 + discount_rate) ** lifetime)
     return (investment * CRF + FOM).fillna(0)
 
-def load_extendable_parameters(n, model_file, model_setup, snakemake):
+def load_extendable_parameters(n, scenario_setup, snakemake):
     """
     set all asset costs tab in the model file
     """
+    defaults = snakemake.config["electricity"]["extendable_parameters"]["defaults"]
 
-    param = pd.read_excel(
-        model_file, 
-        sheet_name = "extendable_parameters",
+    param_mapping = pd.read_excel(
+        os.path.join(scenario_setup["sub_path"],"extendable_technologies.xlsx"), 
+        sheet_name = "parameter_mapping",
+        index_col = [0,1],
+    ).loc[scenario_setup["extendable_parameters"]]
+
+    param_matrix = pd.read_excel(
+        os.path.join(scenario_setup["sub_path"],"extendable_technologies.xlsx"), 
+        sheet_name = "parameters",
         index_col = [0,2,1],
-    ).sort_index().loc[model_setup["extendable_parameters"]]
+    ).sort_index()
+
+    param = pd.DataFrame(index = pd.MultiIndex.from_product([param_mapping.columns, param_mapping.index]), columns = param_matrix.columns)
+    
+    for idx in param.index:
+        mapping_ = param_mapping.loc[idx[1], idx[0]]
+        if pd.isna(mapping_):
+            # get default value from config file
+            param.loc[idx, :] = defaults[idx[0]]
+        else:
+            param.loc[idx, :] = param_matrix.loc[(mapping_, idx[0], idx[1]), :].values
 
     param.drop("source", axis=1, inplace=True)
     
@@ -190,7 +213,7 @@ def load_extendable_parameters(n, model_file, model_setup, snakemake):
     param = full_param.copy()
 
     # Get entries where FOM is specified as % of CAPEX
-    fom_perc_capex=param.loc[param.unit.str.contains("%/year") == True, param_yr]
+    fom_perc_capex=param.loc[param.unit.str.contains("\%capex/year") == True, param_yr]
     fom_perc_capex_idx=fom_perc_capex.index.get_level_values(1)
 
     add_param = pd.DataFrame(
@@ -199,7 +222,7 @@ def load_extendable_parameters(n, model_file, model_setup, snakemake):
     )
     
     param = pd.concat([param, add_param],axis=0)
-    param.loc[("FOM",fom_perc_capex_idx), param_yr] = (param.loc[("investment", fom_perc_capex_idx),param_yr]).values/100.0
+    param.loc[("FOM",fom_perc_capex_idx), param_yr] *= (param.loc[("investment", fom_perc_capex_idx),param_yr]).values/100.0
     param.loc[("FOM",fom_perc_capex_idx), "unit"] = param.loc[("investment", fom_perc_capex_idx),"unit"].values
 
     capital_costs = annualise_costs(
@@ -225,41 +248,41 @@ def load_extendable_parameters(n, model_file, model_setup, snakemake):
     
     return param
 
-def update_transmission_costs(n, costs, length_factor=1.0, simple_hvdc_costs=False):
-    # Currently only average transmission costs are implemented
-    n.lines["capital_cost"] = (
-        n.lines["length"] * length_factor * costs.loc[("capital_cost","HVAC_overhead"), costs.columns.drop("unit")].mean()
-    )
+# def update_transmission_costs(n, costs, length_factor=1.0, simple_hvdc_costs=False):
+#     # Currently only average transmission costs are implemented
+#     n.lines["capital_cost"] = (
+#         n.lines["length"] * length_factor * costs.loc[("capital_cost","HVAC_overhead"), costs.columns.drop("unit")].mean()
+#     )
 
-    if n.links.empty:
-        return
+#     if n.links.empty:
+#         return
 
-    dc_b = n.links.carrier == "DC"
-    # If there are no "DC" links, then the "underwater_fraction" column
-    # may be missing. Therefore we have to return here.
-    # TODO: Require fix
-    if n.links.loc[n.links.carrier == "DC"].empty:
-        return
+#     dc_b = n.links.carrier == "DC"
+#     # If there are no "DC" links, then the "underwater_fraction" column
+#     # may be missing. Therefore we have to return here.
+#     # TODO: Require fix
+#     if n.links.loc[n.links.carrier == "DC"].empty:
+#         return
 
-    if simple_hvdc_costs:
-        hvdc_costs = (
-            n.links.loc[dc_b, "length"]
-            * length_factor
-            * costs.loc[("capital_cost","HVDC_overhead"),:].mean()
-        )
-    else:
-        hvdc_costs = (
-            n.links.loc[dc_b, "length"]
-            * length_factor
-            * (
-                (1.0 - n.links.loc[dc_b, "underwater_fraction"])
-                * costs.loc[("capital_cost","HVDC_overhead"),:].mean()
-                + n.links.loc[dc_b, "underwater_fraction"]
-                * costs.loc[("capital_cost","HVDC_submarine"),:].mean()
-            )
-            + costs.loc[("capital_cost","HVDC inverter_pair"),:].mean()
-        )
-    n.links.loc[dc_b, "capital_cost"] = hvdc_costs
+#     if simple_hvdc_costs:
+#         hvdc_costs = (
+#             n.links.loc[dc_b, "length"]
+#             * length_factor
+#             * costs.loc[("capital_cost","HVDC_overhead"),:].mean()
+#         )
+#     else:
+#         hvdc_costs = (
+#             n.links.loc[dc_b, "length"]
+#             * length_factor
+#             * (
+#                 (1.0 - n.links.loc[dc_b, "underwater_fraction"])
+#                 * costs.loc[("capital_cost","HVDC_overhead"),:].mean()
+#                 + n.links.loc[dc_b, "underwater_fraction"]
+#                 * costs.loc[("capital_cost","HVDC_submarine"),:].mean()
+#             )
+#             + costs.loc[("capital_cost","HVDC inverter_pair"),:].mean()
+#         )
+#     n.links.loc[dc_b, "capital_cost"] = hvdc_costs
 
 
 """
@@ -268,7 +291,7 @@ def update_transmission_costs(n, costs, length_factor=1.0, simple_hvdc_costs=Fal
 ********************************************************************************
 """
 
-def attach_load(n, annual_demand):
+def attach_load(n, scenario_setup):
     """
     Attaches load to the network based on the provided annual demand.
     Demand is disaggregated by the load_disaggreate function according to either population 
@@ -281,25 +304,36 @@ def attach_load(n, annual_demand):
         """
 
     load = pd.read_csv(snakemake.input.load,index_col=[0],parse_dates=True)
-    
-    annual_demand = annual_demand.drop("unit")*1e6
-    profile_demand = normed(remove_leap_day(load.loc[str(snakemake.config["years"]["reference_demand_year"]),"system_energy"]))
+
+    annual_load = (
+        pd.read_excel(
+            os.path.join(
+                scenario_setup["sub_path"],
+                "annual_load.xlsx",
+            ),
+            sheet_name="annual_load",
+            index_col=[0],
+        )
+    ).loc[scenario_setup["load_trajectory"]]
+
+    annual_load = annual_load.drop(["unit","Source"]).T*1e6
+    profile_load = normed(remove_leap_day(load.loc[str(snakemake.config["years"]["reference_load_year"]),"system_energy"]))
     
     if n.multi_invest:
-        demand=pd.Series(0,index=n.snapshots)
+        load=pd.Series(0,index=n.snapshots)
         for y in n.investment_periods:
-            demand.loc[y]=profile_demand.values*annual_demand[y]
+            load.loc[y]=profile_load.values*annual_load.loc[y]
     else:
-        demand = pd.Series(profile_demand.values*annual_demand[n.snapshots[0].year], index = n.snapshots)
+        load = pd.Series(profile_load.values*annual_load[n.snapshots[0].year], index = n.snapshots)
 
-    if snakemake.wildcards.regions == "1-supply":
+    if len(n.buses) == 1:
         n.add("Load", "RSA",
             bus="RSA",
-            p_set=demand)
+            p_set=load)
     else:
         n.madd("Load", list(n.buses.index),
             bus = list(n.buses.index),
-            p_set = load_disaggregate(demand, normed(n.buses[snakemake.config["electricity"]["demand_disaggregation"]])))
+            p_set = load_disaggregate(load, normed(n.buses[snakemake.config["electricity"]["load_disaggregation"]])))
 
 
 """
@@ -322,6 +356,10 @@ def init_pu_profiles(gens, snapshots):
 
 
 def extend_reference_data(n, ref_data, snapshots):
+
+    # delete data from years if all zeros
+    ref_data = ref_data.groupby(pd.Grouper(freq='Y')).filter(lambda x: not (x==0).all().all())
+
     ext_years = snapshots.year.unique()
     if len(ref_data.shape) > 1:
         extended_data = pd.DataFrame(0, index=snapshots, columns=ref_data.columns)
@@ -332,54 +370,46 @@ def extend_reference_data(n, ref_data, snapshots):
     for _ in range(int(np.ceil(len(ext_years) / len(ref_years)))-1):
         ref_data = pd.concat([ref_data, ref_data],axis=0)
 
-    extended_data.iloc[:] = ref_data.iloc[range(len(extended_data)),:].values
+    extended_data.iloc[:] = ref_data.iloc[range(len(extended_data))].values
 
     return extended_data.clip(lower=0., upper=1.)
 
 
 def get_eaf_profiles(snapshots, type):
+      
     outages = pd.read_excel(
-            model_file, 
+            os.path.join(scenario_setup["sub_path"], "plant_availability.xlsx"), 
             sheet_name='outage_profiles',
             index_col=[0,1,2],
             header=[0,1],
-    ).loc[model_setup["outage_profiles"]]
+    ).loc[scenario_setup["outage_profiles"]]
     outages = outages[type+"_generators"]
-    eaf_mnthly = 1 - (outages.loc["planned"] + outages.loc["unplanned"])
-    eaf_hrly = pd.DataFrame(1, index = snapshots, columns = eaf_mnthly.columns)
-    eaf_hrly = eaf_mnthly.loc[eaf_hrly.index.month].reset_index(drop=True).set_index(eaf_hrly.index) 
+
+    def proc_outage(outages, _type, snapshots):
+        out_df = outages.loc[(_type, range(1,54)), :]
+        out_df.index = range(1,54)
+        std_dev = outages.loc[(_type, "std_dev_noise"),:]
+
+        eaf_hrly = out_df.loc[snapshots.week]
+        eaf_hrly.index = snapshots
+
+        for col in eaf_hrly.columns:
+            eaf_hrly[col] = add_noise(eaf_hrly[col], std_dev[col], 48)
+
+        return eaf_hrly
+
+    pclf = proc_outage(outages, "planned", snapshots)
+    uoclf = proc_outage(outages, "unplanned", snapshots)
+
     
-    return eaf_hrly
-
-def get_eskom_eaf(ref_yrs, snapshots):
-    # Add plant availability based on actual Eskom data provided
-    eskom_data  = pd.read_excel(
-        snakemake.input.fixed_generators_eaf, 
-        sheet_name="eskom_data", 
-        na_values=["-"],
-        index_col=[1,0],
-        parse_dates=["date"]
-    )
-
-    eaf = (eskom_data["EAF %"]/100).unstack(level=0)
-
-    eaf = eaf.loc[eaf.index.year.isin(ref_yrs)]
-    eaf_mnthly = eaf.groupby(eaf.index.month).mean()
-
-    eaf_hrly = pd.DataFrame(1, index = snapshots, columns = eaf_mnthly.columns)
-    eaf_hrly = eaf_mnthly.loc[eaf_hrly.index.month].reset_index(drop=True).set_index(eaf_hrly.index) 
-    
-    return eaf_hrly
-
-def clip_eskom_eaf(eaf_hrly, gen_list, lower=0, upper=1):
-    return eaf_hrly[gen_list].clip(lower=lower, upper=upper)
+    return 1- (pclf + uoclf)
 
 def clip_pu_profiles(n, pu, gen_list, lower=0, upper=1):
     n.generators_t[pu] = n.generators_t[pu].copy()
     n.generators_t[pu].loc[:, gen_list] = get_as_dense(n, "Generator", pu)[gen_list].clip(lower=lower, upper=upper)
 
 
-def proj_eaf_override(eaf_hrly, projections, snapshots, include = "_EAF", exclude = "extendable"):
+def proj_eaf_override(eaf_hrly, snapshots, include = "_EAF", exclude = "extendable"):
     """
     Overrides the hourly EAF (Energy Availability Factor) values with projected EAF values, if these are defined
     under the project_parameters tab in the model_file.xlsx. Existing generators have suffix _EAF and extendable generators
@@ -396,9 +426,14 @@ def proj_eaf_override(eaf_hrly, projections, snapshots, include = "_EAF", exclud
         project_parameters: parameters with _EAF or _extendable_EAF suffix  
     
     """
+    annual_avail = pd.read_excel(
+            os.path.join(scenario_setup["sub_path"], "plant_availability.xlsx"), 
+            sheet_name='annual_availability',
+            index_col=[0,1],
+    ).loc[scenario_setup["annual_availability"]]
 
     eaf_yrly = eaf_hrly.groupby(eaf_hrly.index.year).mean()
-    proj_eaf = projections.loc[(projections.index.str.contains(include) & ~projections.index.str.contains(exclude)), snapshots.year.unique()]
+    proj_eaf = annual_avail.loc[(annual_avail.index.str.contains(include) & ~annual_avail.index.str.contains(exclude)), snapshots.year.unique()]
     proj_eaf.index = proj_eaf.index.str.replace(include,"")
 
     # remove decom_stations
@@ -410,7 +445,7 @@ def proj_eaf_override(eaf_hrly, projections, snapshots, include = "_EAF", exclud
 
     return eaf_hrly
 
-def generate_eskom_re_profiles(n):
+def generate_eskom_re_profiles(n, carriers):
     """
     Generates Eskom renewable energy profiles for the network, based on the Eskom Data Portal information, found under
     https://www.eskom.co.za/dataportal/. Data is available from 2018 to 2023 for aggregate carriers (e.g. all solar_pv, biomass, hydro etc).
@@ -429,11 +464,8 @@ def generate_eskom_re_profiles(n):
         use_eskom_wind_solar
     """
     ext_years = get_investment_periods(n.snapshots, n.multi_invest)
-    carriers = snakemake.config["electricity"]["renewable_generators"]["carriers"]
     ref_years = snakemake.config["years"]["reference_weather_years"]
-
-    if snakemake.config["enable"]["use_excel_wind_solar"][0]:
-        carriers = [elem for elem in carriers if elem not in ["wind","solar_pv"]]
+    carriers = [elem for elem in carriers if not elem.startswith(("wind","solar_pv"))]
 
     eskom_data = (
         pd.read_csv(
@@ -456,73 +488,87 @@ def generate_eskom_re_profiles(n):
             eskom_profiles.loc[y, carrier] = (eskom_data.loc[str(weather_years[cnt]), carrier]
                                             .clip(lower=0., upper=1.)).values
     return eskom_profiles
-def generate_fixed_wind_solar_profiles_from_excel(n, gens, ref_data, snapshots, pu_profiles):
+def generate_fixed_wind_solar_profiles(n, gens, snapshots, carriers, pu_profiles):
     """
-    Generates fixed wind and solar PV profiles for the network based on timeseries data supplied in Excel format.
+    Generates fixed wind and solar PV profiles for the network based on timeseries data that is pre-calculated
+    and using the notebooks under resource_processing. Data is loaded from NetCDF format.
 
 
     Args:
     - n: The network object.
     - gens: A DataFrame containing the generator information.
-    - ref_data: The reference data file.
     - snapshots: A Series containing the snapshots.
     - pu_profiles: The DataFrame to store the pu profiles.
 
-    Relevant config.yaml settings:
-        enable:
-            use_excel_wind_solar
-    
-            
-    Relevant Excel data:
-    Spreadsheet with the following tabs:
-        fixed_wind_pu: Existing wind profiles
-        fixed_solar_pv_pu: Existing solar PV profiles
-        {regions}_wind_pu: Extendable wind profiles
-        {regions}_solar_pv_pu: Extendable solar PV profiles
-
     """
 
-    for carrier in ["wind", "solar_pv"]:
-        pu = pd.read_excel(
-            ref_data,
-            sheet_name=f"fixed_{carrier}_pu",
-            index_col=0,
-            skiprows=[1],
-            parse_dates=["date"],
-        )
-
+    #only select entries in carriers that start with wind or solar_pv
+    carriers = [elem for elem in carriers if elem.startswith(("wind","solar_pv"))]
+    config = snakemake.config["electricity"]["renewable_generators"]
+    ref_years = snakemake.config["years"]["reference_weather_years"]
+    for carrier in carriers:
+        if carrier not in ["solar_pv_rooftop", "wind_offshore"]:
+            base_carrier = "wind" if carrier.startswith("wind") else "solar_pv"
+        else:
+            base_carrier = carrier
+            
+        data = f"{carrier}_fixed_{config['resource_profiles']['datasets'][carrier]}"
+        pu= xr.open_dataarray(snakemake.input.renewable_profiles, group=data).sel(param="pu").to_pandas()
         pu = remove_leap_day(pu)
+        pu = pu[pu.index.year.isin(ref_years[base_carrier])]
         mapping = gens.loc[(gens["Model Key"] != np.nan) & (gens["carrier"] == carrier),"Model Key"]
         mapping = pd.Series(mapping.index,index=mapping.values)
         pu = pu[mapping.index]
         pu.columns = mapping[pu.columns].values
-        pu = extend_reference_data(n, pu, snapshots)
+        pu = extend_reference_data(n, pu, snapshots) * (1-config["degradation_adj_capacity_factor"][carrier])
         pu_profiles.loc["max", pu.columns] = pu.values
-        pu_profiles.loc["min", pu.columns] = 0.95*pu.values # Existing REIPPP take or pay constraint (100% can cause instabilitites)
+        pu_profiles.loc["min", pu.columns] = 0.98*pu.values # Existing REIPPP take or pay constraint (100% can cause instabilitites)
 
     return pu_profiles
 
-def generate_extendable_wind_solar_profiles_from_excel(n, gens, ref_data, snapshots, pu_profiles):
-    years = snapshots.year.unique()
-    re_carries = ["wind", "solar_pv"]
-    gens = gens.query("carrier == @re_carries & p_nom_extendable")
-        
-    for carrier in re_carries:
-        pu_ref = pd.read_excel(
-            ref_data,
-            sheet_name=f"{snakemake.wildcards.regions}_{carrier}_pu",
-            index_col=0,
-            skiprows=[1],
-            parse_dates=["date"],
-        )
-        pu_ref = pu_ref[pu_ref.index.year.isin(snakemake.config["years"]["reference_weather_years"][carrier])]
-        pu_ref = remove_leap_day(pu_ref)
-        pu = pu_ref.copy()
-        
-        for y in years:
-            pu.columns = pu_ref.columns + f"-{carrier}-{y}"
-            pu_profiles.loc["max", pu.columns] = extend_reference_data(n, pu, snapshots).values
 
+def generate_extendable_wind_solar_profiles(n, gens, snapshots, carriers, pu_profiles):
+    carriers = [elem for elem in carriers if elem.startswith(("wind","solar_pv"))]
+    gens = gens.query("carrier == @carriers & p_nom_extendable")
+
+    years = snapshots.year.unique()
+    config_datasets = snakemake.config["electricity"]["renewable_generators"]["resource_profiles"]["datasets"]
+    config = snakemake.config["electricity"]["renewable_generators"]
+
+    def get_base_carrier(carrier):
+        return "wind" if carrier.startswith("wind") else "solar_pv"
+
+    for carrier in carriers:
+        base_carrier = carrier if carrier in ["solar_pv_rooftop", "wind_offshore"] else get_base_carrier(carrier)
+        if len(n.buses) == 1:
+            config_profiles = config["resource_profiles"]["single_node_profiles"]
+            dataset = f"{base_carrier}_{config_profiles[carrier][0]}_{config_datasets[base_carrier]}"
+            bus_ref = config_profiles[carrier][1]
+            weights = config_profiles[carrier][2]/np.array(config_profiles[carrier][2]).sum()
+            if carrier == "wind_offshore":
+                data = xr.open_dataarray(snakemake.input.renewable_profiles, group=dataset).sel(bus=bus_ref, _type="floating", quantile=0.9).to_pandas()
+            else:
+                data = xr.open_dataarray(snakemake.input.renewable_profiles, group=dataset).sel(bus=bus_ref, intra_region=scenario_setup["resource_area"]).to_pandas()
+        else:
+            dataset = f"{base_carrier}_{len(n.buses)}_{config_datasets[base_carrier]}"
+            data = xr.open_dataarray(snakemake.input.renewable_profiles, group=dataset)
+
+        for bus in n.buses.index:
+            pu_ref = data.sel(bus=bus, intra_region=scenario_setup["resource_area"]).to_pandas() if len(n.buses)!=1 else data.dot(weights)                
+            pu_ref = pu_ref[pu_ref.index.year.isin(snakemake.config["years"]["reference_weather_years"][base_carrier])]
+            pu_ref = remove_leap_day(pu_ref)
+            pu = pu_ref.copy()
+            for y in years:
+                pu.name = f"{bus}-{carrier}-{y}"
+                pu_profiles.loc["max", pu.name] = extend_reference_data(n, pu, snapshots).values * (1 - config["degradation_adj_capacity_factor"][carrier])
+
+    return pu_profiles
+
+def generate_rmippp_profiles(gens, pu_profiles):
+    gen_list = gens[gens.carrier=="rmippp"].index
+    pu_profiles.loc[("max", slice(None)), gen_list] = 1
+    pu_profiles.loc[("max", pu_profiles.index.get_level_values(1).hour<5), gen_list] = 0
+    pu_profiles.loc[("max", pu_profiles.index.get_level_values(1).hour>21), gen_list] = 0
     return pu_profiles
 
 def group_pu_profiles(pu_profiles, component_df):
@@ -554,13 +600,13 @@ def group_pu_profiles(pu_profiles, component_df):
     Functions to define and attach generators to the network  
 ********************************************************************************
 """
-def load_components_from_model_file(carriers, start_year, config):
+def load_fixed_components(carriers, start_year, config, tech_flag):
     """
     Load components from a model file based on specified filters and configurations.
 
     Args:
         model_file: The file path to the model file.
-        model_setup: The model setup object.
+        scenario_setup: The model setup object.
         carriers: A list of carriers to filter the generators.
         start_year: The start year for the components.
         config: A dictionary containing configuration settings.
@@ -568,15 +614,27 @@ def load_components_from_model_file(carriers, start_year, config):
     Returns:
         A DataFrame containing the loaded components.
     """
-    conv_tech = read_and_filter_generators(model_file, "fixed_conventional", model_setup.fixed_conventional, carriers)
-    re_tech = read_and_filter_generators(model_file, "fixed_renewables", model_setup.fixed_renewables, carriers)
 
-    conv_tech["apply_grouping"] = config["conventional_generators"]["apply_grouping"]
-    re_tech["apply_grouping"] = config["renewable_generators"]["apply_grouping"]
-    re_tech.set_index((re_tech["Model Key"] + "_" + re_tech["Carrier"]).values,inplace=True)
+    component_file = os.path.join(scenario_setup["sub_path"], "fixed_technologies.xlsx")
+    if tech_flag == "Generator":
+        conv_tech = read_and_filter_generators(component_file, "conventional", scenario_setup["fixed_conventional"], carriers)
+        re_tech = read_and_filter_generators(component_file, "renewables", scenario_setup["fixed_renewables"], carriers)
 
-    tech= pd.concat([conv_tech, re_tech])
-    tech = map_component_parameters(tech, start_year)
+        conv_tech["apply_grouping"] = config["conventional_generators"]["apply_grouping"]
+        conv_tech["Type"], conv_tech["Status"] = "Generator", "fixed"
+
+        re_tech["apply_grouping"] = config["renewable_generators"]["apply_grouping"]
+        re_tech.set_index((re_tech["Model Key"] + "_" + re_tech["Carrier"]).values,inplace=True)
+        re_tech["Type"], re_tech["Status"] = "Generator", "fixed"
+
+        tech= pd.concat([conv_tech, re_tech])
+
+    else:
+        tech = read_and_filter_generators(component_file, "storage", scenario_setup["fixed_storage"], carriers)
+        tech["apply_grouping"] = config["storage"]["apply_grouping"]
+        tech["Type"], tech["Status"] = "StorageUnit", "fixed"
+
+    tech = map_component_parameters(tech, start_year,tech_flag)
     tech = tech.query("(p_nom > 0) & x.notnull() & y.notnull() & (lifetime >= 0)")
     
     return tech
@@ -594,7 +652,7 @@ def map_components_to_buses(component_df, regions, crs_config):
         A DataFrame with the generators associated with their respective bus.
     """
 
-    regions_gdf = gpd.read_file(regions).to_crs(snakemake.config["crs"]["distance_crs"]).set_index("name")
+    regions_gdf = gpd.read_file(regions).to_crs(snakemake.config["gis"]["crs"]["distance_crs"]).set_index("name")
     gps_gdf = gpd.GeoDataFrame(
         geometry=gpd.GeoSeries([Point(o.x, o.y) for o in component_df[["x", "y"]].itertuples()],
         index=component_df.index, 
@@ -628,73 +686,83 @@ def group_components(component_df, attrs):
 
     filtered_df = component_df.query("apply_grouping").copy().fillna(0)#[component_df["apply_grouping"]].copy().fillna(0)
 
-    grouped_df = pd.DataFrame(index=filtered_df.groupby(["Grouping", "carrier", "bus"]).sum().index, columns = param_cols)
-    grouped_df["p_nom"] = filtered_df.groupby(["Grouping", "carrier", "bus"]).sum()["p_nom"]
-    grouped_df["build_year"] = filtered_df.groupby(["Grouping", "carrier", "bus"]).min()["build_year"]
-    grouped_df["lifetime"] = filtered_df.groupby(["Grouping", "carrier", "bus"]).max()["lifetime"]
+    if len(filtered_df) > 0:
+        grouped_df = pd.DataFrame(index=filtered_df.groupby(["Grouping", "carrier", "bus"]).sum().index, columns = param_cols)
+        grouped_df["p_nom"] = filtered_df.groupby(["Grouping", "carrier", "bus"]).sum()["p_nom"]
+        grouped_df["build_year"] = filtered_df.groupby(["Grouping", "carrier", "bus"]).min()["build_year"]
+        grouped_df["lifetime"] = filtered_df.groupby(["Grouping", "carrier", "bus"]).max()["lifetime"]
+        
+        # calculate weighted average of remaining parameters in gens dataframe
+        for param in [p for p in params if p not in ["bus","carrier","p_nom", "lifetime", "build_year"]]:
+            weighted_sum = filtered_df.groupby(["Grouping", "carrier", "bus"]).apply(lambda x: (x[param] * x["p_nom"]).sum())
+            total_p_nom = filtered_df.groupby(["Grouping", "carrier", "bus"])["p_nom"].sum()
+            weighted_average = weighted_sum / total_p_nom 
+            grouped_df.loc[weighted_average.index, param] = weighted_average.values
+        
+        rename_idx = grouped_df.index.get_level_values(2) +  "-" + grouped_df.index.get_level_values(1) +  "_" + grouped_df.index.get_level_values(0)
+        grouped_df = grouped_df.reset_index(level=[1,2]).replace(0, np.nan).set_index(rename_idx) 
+    else:
+        grouped_df = pd.DataFrame(columns=params)
     
-    # calculate weighted average of remaining parameters in gens dataframe
-    for param in [p for p in params if p not in ["bus","carrier","p_nom", "lifetime", "build_year"]]:
-        weighted_sum = filtered_df.groupby(["Grouping", "carrier", "bus"]).apply(lambda x: (x[param] * x["p_nom"]).sum())
-        total_p_nom = filtered_df.groupby(["Grouping", "carrier", "bus"])["p_nom"].sum()
-        weighted_average = weighted_sum / total_p_nom 
-        grouped_df.loc[weighted_average.index, param] = weighted_average.values
-    
-    rename_idx = grouped_df.index.get_level_values(2) +  "-" + grouped_df.index.get_level_values(1) +  "_" + grouped_df.index.get_level_values(0)
-    grouped_df = grouped_df.reset_index(level=[1,2]).replace(0, np.nan).set_index(rename_idx) 
     non_grouped_df = component_df[~component_df["apply_grouping"]][params].copy()
-
     # Fill missing values with default values (excluding defaults that are NaN)    
     grouped_df = apply_default_attr(grouped_df, attrs)
     non_grouped_df = apply_default_attr(non_grouped_df, attrs)
 
     return grouped_df, non_grouped_df
 
-def attach_fixed_generators(n, costs):
+def attach_fixed_generators(n, carriers):
+
     # setup carrier info
     gen_attrs = n.component_attrs["Generator"]
-    config = snakemake.config["electricity"]
-    fix_ref_years = config["conventional_generators"]["fix_ref_years"]
-    conv_carriers = config["conventional_generators"]["carriers"]
-    re_carriers = config["renewable_generators"]["carriers"]
+    conv_carriers = carriers["fixed"]["conventional"]
+    re_carriers = carriers["fixed"]["renewables"]
     carriers = conv_carriers + re_carriers
 
     start_year = get_start_year(n.snapshots, n.multi_invest)
     snapshots = get_snapshots(n.snapshots, n.multi_invest)
     
     # load generators from model file
-    gens = load_components_from_model_file(carriers, start_year, snakemake.config["electricity"])
-    gens = map_components_to_buses(gens, snakemake.input.supply_regions, snakemake.config["crs"])
+    gens = load_fixed_components(carriers, start_year, snakemake.config["electricity"], "Generator")
+    gens = map_components_to_buses(gens, snakemake.input.supply_regions, snakemake.config["gis"]["crs"])
     pu_profiles = init_pu_profiles(gens, snapshots)
 
     unique_entries = set()
     coal_gens =  [unique_entries.add(g.split("*")[0]) or g.split("*")[0] for g in gens[gens.carrier == 'coal'].index if g.split("*")[0] not in unique_entries]
-    # Monthly average EAF for conventional plants from Eskom  
-  
-    #conv_pu = get_eskom_eaf(fix_ref_years, snapshots)
     conv_pu = get_eaf_profiles(snapshots, "fixed")
     
     not_in_pu = [g for g in coal_gens if g not in conv_pu.columns]
     conv_pu[not_in_pu] = 1    
+    conv_pu = proj_eaf_override(conv_pu, snapshots, include = "_EAF", exclude = "extendable")
+    
+    # Copy pu_profiles max to conv_pu
+    common_gens = [g for g in conv_pu.columns if g in pu_profiles.loc["max"].columns]
+    pu_profiles.loc["max", common_gens] = conv_pu[common_gens].values
 
-    conv_pu[coal_gens] = clip_eskom_eaf(conv_pu, coal_gens, lower=0.3, upper=1)
-    conv_pu = proj_eaf_override(conv_pu, projections, snapshots, include = "_EAF", exclude = "extendable")
-    eskom_carriers = [carrier for carrier in conv_carriers if carrier not in ["nuclear", "hydro", "hydro_import"]]
-    for col in gens.query("Grouping == 'eskom' & carrier in @eskom_carriers").index:
-        pu_profiles.loc["max", col] = conv_pu[col.split("*")[0]].values
+    split_gens = [g for g in gens.index if "*" in g]
+    for gen in split_gens:
+        station = gen.split("*")[0]
+        pu_profiles.loc["max", gen] = conv_pu[station].values
+
+    # eskom_carriers = [carrier for carrier in conv_carriers if carrier not in ["nuclear", "hydro", "hydro_import"]]
+    # for col in gens.query("Grouping == 'eskom' & carrier in @eskom_carriers").index:
+    #     pu_profiles.loc["max", col] = conv_pu[col.split("*")[0]].values
+
+
+    #rmippp_constraints(n, n.snapshots)
 
     # Hourly data from Eskom data portal
-    eskom_re_pu = generate_eskom_re_profiles(n)
+    eskom_re_pu = generate_eskom_re_profiles(n, re_carriers)
     eskom_re_carriers = eskom_re_pu.columns
     for col in gens.query("carrier in @eskom_re_carriers").index:
         pu_profiles.loc["max", col] = eskom_re_pu[gens.loc[col, "carrier"]].values
         pu_profiles.loc["min", col] = eskom_re_pu[gens.loc[col, "carrier"]].values
 
     # Wind and solar profiles if not using Eskom data portal
-    if snakemake.config["enable"]["use_excel_wind_solar"][0]:
-        ref_data = pd.ExcelFile(snakemake.config["enable"]["use_excel_wind_solar"][1])
-        pu_profiles = generate_fixed_wind_solar_profiles_from_excel(n, gens, ref_data, snapshots, pu_profiles)
+    pu_profiles = generate_fixed_wind_solar_profiles(n, gens, snapshots, re_carriers, pu_profiles)
 
+    # Add specific dispatch profile to RMIPPP generators
+    pu_profiles = generate_rmippp_profiles(gens, pu_profiles)
     pu_profiles, p_nom_pu = group_pu_profiles(pu_profiles, gens) #includes both grouped an non-grouped generators
     grouped_gens, non_grouped_gens = group_components(gens, gen_attrs)
     grouped_gens["p_nom_extendable"] = False
@@ -710,32 +778,41 @@ def attach_fixed_generators(n, costs):
     n.generators_t.p_max_pu = pu_max.clip(lower=0.0, upper=1.0)
     n.generators_t.p_min_pu = pu_min.clip(lower=0.0, upper=1.0)
     
-    for carrier, value in snakemake.config["electricity"]["min_hourly_station_gen"]["fixed"].items():
-        clip_pu_profiles(n, "p_min_pu", n.generators.query("carrier == @carrier & p_nom_extendable == False").index, lower=value, upper=1.0)
+    #for carrier, value in snakemake.config["electricity"]["min_hourly_station_gen"]["fixed"].items():
+    #    clip_pu_profiles(n, "p_min_pu", n.generators.query("carrier == @carrier & p_nom_extendable == False").index, lower=value, upper=1.0)
 
+# def extendable_max_build_per_bus_per_carrier():
 
-def extendable_max_build_per_bus_per_carrier():
+#     ext_max_build = (
+#         pd.read_excel(
+#             model_file, 
+#             sheet_name='ext_max_total',
+#             index_col=[0,1,2,3,4])
+#     ).loc[scenario_setup]
+#     ext_max_build.replace("unc", np.inf, inplace=True)
 
-    ext_max_build = (
-        pd.read_excel(
-            model_file, 
-            sheet_name='extendable_max_build',
-            index_col=[0,1,2,3])
-    ).loc[model_setup]
-    ext_max_build.replace("unc", np.inf, inplace=True)
+#     return ext_max_build.loc[snakemake.wildcards.regions]
 
-    return ext_max_build.loc[snakemake.wildcards.regions]
-
-def define_extendable_tech(years, type_, ext_param):
+def define_extendable_tech(carriers, years, type_, ext_param):
 
     ext_max_build = pd.read_excel(
-        model_file, 
-        sheet_name='extendable_max_build',
+        os.path.join(scenario_setup["sub_path"],"extendable_technologies.xlsx"), 
+        sheet_name='max_total_installed',
         index_col= [0,1,3,2,4],
-    ).loc[(model_setup["extendable_build_limits"], snakemake.wildcards.regions, type_, slice(None)), years]
+    ).loc[(scenario_setup["extendable_max_total"], scenario_setup["regions"], type_, slice(None)), years]
+    
     ext_max_build.replace("unc", np.inf, inplace=True)
     ext_max_build.index = ext_max_build.index.droplevel([0, 1, 2])
     ext_max_build = ext_max_build.loc[~(ext_max_build==0).all(axis=1)]
+
+    # Drop extendable techs that are not defined as eligible carriers in ext_techs tab
+    if type_ == "Generator":
+        eligible_carriers = carriers['extendable']['conventional'] + carriers['extendable']['renewables']
+    elif type_ == "StorageUnit":
+        eligible_carriers = carriers['extendable']['storage']
+    idx = [(bus, c) for (bus, c) in ext_max_build.index if c in eligible_carriers]
+    ext_max_build = ext_max_build.loc[idx]
+
 
     carrier_names = ext_max_build.index.get_level_values(1)
     if bad_name := list(carrier_names[carrier_names.str.contains("-")]):
@@ -752,42 +829,39 @@ def define_extendable_tech(years, type_, ext_param):
     ).values
 
 
-def attach_extendable_generators(n, ext_param):
+def attach_extendable_generators(n, carriers):
     gen_attrs = n.component_attrs["Generator"]
     config = snakemake.config["electricity"]
-    ext_ref_years = config["conventional_generators"]["ext_ref_years"]
-    ext_ref_gens = config["conventional_generators"]["extendable_reference"] 
     
+    conv_carriers = carriers["extendable"]["conventional"]
+    re_carriers = carriers["extendable"]["renewables"]
+
     ext_years = get_investment_periods(n.snapshots, n.multi_invest)
     snapshots = get_snapshots(n.snapshots, n.multi_invest)
 
-    ext_gens_list = define_extendable_tech(ext_years, "Generator", ext_param) 
+    ext_param = load_extendable_parameters(n, scenario_setup, snakemake)
+    ext_gens_list = define_extendable_tech(carriers, ext_years, "Generator", ext_param) 
     gens = set_extendable_params("Generator", ext_gens_list, ext_param)
+    gens = set_annual_build_limits(gens, ext_years, "Generator")
+     
     pu_profiles = init_pu_profiles(gens, snapshots)
     
     # Monthly average EAF for conventional plants from Eskom
-    #conv_pu = get_eskom_eaf(ext_ref_years, snapshots)[ext_ref_gens.values()]
     conv_pu = get_eaf_profiles(snapshots, "extendable")
-    conv_pu["coal"] = clip_eskom_eaf(conv_pu, gen_list = ["coal"], lower=0.3, upper=1)
-    conv_pu.columns = ext_ref_gens.keys()
-    conv_pu = proj_eaf_override(conv_pu, projections, snapshots, include = "_extendable_EAF", exclude = "NA")
-
-    conv_carriers = [carrier for carrier in conv_pu.columns if carrier in n.generators.carrier.unique()]
+    conv_pu = proj_eaf_override(conv_pu, snapshots, include = "_extendable_EAF", exclude = "NA")
 
     for col in gens.query("carrier in @conv_carriers & p_nom_extendable == True").index:
         pu_profiles.loc["max", col] = conv_pu[col.split("-")[1]].values
 
     # Hourly data from Eskom data portal
-    eskom_ref_re_pu = generate_eskom_re_profiles(n)  
+    eskom_ref_re_pu = generate_eskom_re_profiles(n, re_carriers)  
     eskom_ref_re_carriers = [carrier for carrier in eskom_ref_re_pu.columns if carrier in n.generators.carrier.unique()]# and carrier not in committable_carriers
 
     for col in gens.query("carrier in @eskom_ref_re_carriers & p_nom_extendable == True").index:
         pu_profiles.loc["max", col] = eskom_ref_re_pu[gens.loc[col, "carrier"]].values
 
-    # Wind and solar profiles if not using Eskom data portal
-    if snakemake.config["enable"]["use_excel_wind_solar"][0]:
-        ref_data = pd.ExcelFile(snakemake.config["enable"]["use_excel_wind_solar"][1])
-        pu_profiles = generate_extendable_wind_solar_profiles_from_excel(n, gens, ref_data, snapshots, pu_profiles)
+
+    pu_profiles = generate_extendable_wind_solar_profiles(n, gens, snapshots, re_carriers, pu_profiles)
     
     gens = drop_non_pypsa_attrs(n, "Generator", gens)
     n.import_components_from_dataframe(gens, "Generator")
@@ -797,14 +871,52 @@ def attach_extendable_generators(n, ext_param):
 
     pu_max, pu_min = pu_profiles.loc["max", in_network], pu_profiles.loc["min", in_network]
     pu_max.index, pu_min.index = n.snapshots, n.snapshots
-    n.generators_t.p_max_pu[in_network] = pu_max[in_network].clip(lower=0.0, upper=1.0)
-    n.generators_t.p_min_pu[in_network] = pu_min[in_network].clip(lower=0.0, upper=1.0)
+    n.generators_t.p_max_pu.loc[:, in_network] = pu_max.loc[:, in_network].clip(lower=0.0, upper=1.0)
+    n.generators_t.p_min_pu.loc[:, in_network] = pu_min.loc[:, in_network].clip(lower=0.0, upper=1.0)
 
-    for carrier, value in snakemake.config["electricity"]["min_hourly_station_gen"]["fixed"].items():
-        clip_pu_profiles(n, "p_min_pu", n.generators.query("carrier == @carrier & p_nom_extendable").index, lower=value, upper=1.0)
+    #for carrier, value in snakemake.config["electricity"]["min_hourly_station_gen"]["fixed"].items():
+    #    clip_pu_profiles(n, "p_min_pu", n.generators.query("carrier == @carrier & p_nom_extendable").index, lower=value, upper=1.0)
 
+
+def set_annual_build_limits(techs, ext_years, component):
+    
+    default_lim = {"max":np.inf,"min":0}
+    for lim in ['max',"min"]:
+        annual_limit = pd.read_excel(
+            os.path.join(scenario_setup["sub_path"], "extendable_technologies.xlsx"), 
+            sheet_name = f"{lim}_annual_installed",
+            index_col = [0,1,2,3,4,5],
+        ).loc[(scenario_setup[f"extendable_{lim}_annual"], scenario_setup["regions"]),:].droplevel(3)
+        if component in annual_limit.index.get_level_values(1):
+            if lim =="max":
+                annual_limit.replace('unc', np.inf, inplace=True)
+
+            # get bus and carriers
+            bus_list = techs.bus.unique()
+            carrier_list = techs.carrier.unique()
+
+            bus_list = [bus for bus in techs.bus.unique() if bus in annual_limit.index.get_level_values(0)]
+            carrier_list = [carrier for carrier in techs.carrier.unique() if carrier in annual_limit.index.get_level_values(2)]
+
+            #check intersection between carrier_list and annual_limit_max.index.get_level
+            for bus in bus_list:
+                limit = annual_limit.loc[bus, component]
+                for carrier in carrier_list:
+                    for year in ext_years:
+                        if (f"{bus}-{carrier}-{year}" in techs.index) and (carrier in limit.index):
+                            if (lim=="max") & (limit.loc[carrier, year]==0):
+                                techs.drop(f"{bus}-{carrier}-{year}", inplace=True)
+                            else:
+                                techs.loc[f"{bus}-{carrier}-{year}", f"p_nom_{lim}"] = limit.loc[carrier, year]
+
+            techs[f"p_nom_{lim}"].fillna(default_lim[lim], inplace=True)
+    return techs 
 
 def set_extendable_params(c, bus_carrier_years, ext_param, **config):
+    
+    if len(bus_carrier_years)==0:
+        return
+    
     default_param = [
         "bus",
         "p_nom_extendable",
@@ -856,38 +968,104 @@ def set_extendable_params(c, bus_carrier_years, ext_param, **config):
     
     return component_df
 
+
+def apply_extendable_phase_in(n):
+    param = load_extendable_parameters(n, scenario_setup, snakemake).loc["build_phase_in"]
+    pu_max = get_as_dense(n, "Generator", "p_max_pu")
+    ext_i = n.generators.query("p_nom_extendable").index
+    
+    phase_in = pd.DataFrame(1, index =range(8760), columns = ["overnight", "linear", "quarterly"]) 
+    phase_in.loc[:, "linear"] = np.round(np.arange(0, 1, 1/8760),3)
+    phase_in.loc[:2190, "quarterly"] = 0.25
+    phase_in.loc[2190:4380, "quarterly"] = 0.5
+    phase_in.loc[4380:6570, "quarterly"] = 0.75
+
+    for gen in ext_i:
+        build_year = n.generators.loc[gen, "build_year"]  
+        method = param.loc[gen.split('-')[1], build_year]
+        phasing = phase_in[method]
+        if method not in ["overnight", "linear", "quarterly"]:
+            raise ValueError(f"Invalid method for phase-in of extendable generators: {method}. Choose from 'overnight', 'linear' or 'quarterly'.")
+
+        if method != "overnight":
+            n.generators.loc[gen, "lifetime"] += 1
+
+        gen_pu_max = pu_max[gen]
+        build_year_level = [build_year] * len(gen_pu_max.loc[build_year].index)
+        phasing.index = pd.MultiIndex.from_arrays([build_year_level, gen_pu_max.loc[build_year].index])
+        
+        gen_pu_max.loc[pd.IndexSlice[gen_pu_max.index.get_level_values(0) < build_year]] = 0
+        gen_pu_max.loc[build_year] =  gen_pu_max.loc[build_year] * phasing
+
+        n.generators_t.p_max_pu.loc[:, gen] = gen_pu_max.values
+
+
+def adjust_for_variable_fuel_costs(n):
+    param = load_extendable_parameters(n, scenario_setup, snakemake)
+    # check if any variation in marginal cost across years
+    variable_fuel_cost = param.loc["fuel", n.investment_periods]
+    variable_fuel_cost = variable_fuel_cost[variable_fuel_cost.mean(axis=1) != variable_fuel_cost.iloc[:, 0]]
+
+    gen_list = n.generators.query("carrier in @variable_fuel_cost.index").index
+    marginal_cost = pd.DataFrame(index = n.snapshots, columns = gen_list)
+    for carrier in variable_fuel_cost.index:
+        for gen in n.generators.query("carrier == @carrier").index:
+            cost = variable_fuel_cost.loc[carrier] / n.generators.loc[gen, "efficiency"] + param.loc[("VOM", carrier), n.investment_periods]
+            for y in n.investment_periods:
+                marginal_cost.loc[y, gen_list] = cost.loc[y]
+            n.generators.marginal_cost[gen] = 0
+            n.generators_t.marginal_cost[gen] = marginal_cost[gen]
+
+def set_hourly_coal_generation_threshold(n):
+    if scenario_setup["min_station_hourly"] in ["NA", "None", "none"]:
+        return
+    
+    min_pu_override = (
+        pd.read_excel(
+            os.path.join(scenario_setup["sub_path"],"plant_availability.xlsx"), 
+            sheet_name="min_station_hrly_cap_fact",
+            index_col=[0,1])
+            .loc[scenario_setup["min_station_hourly"]]
+    )
+    carrier_list = list(min_pu_override.index)
+
+    n.generators_t.p_min_pu = n.generators_t.p_min_pu.copy()    
+    for carrier in carrier_list:
+        gen_list = n.generators.query("carrier == @carrier").index
+        for y in n.investment_periods:
+            n.generators_t.p_min_pu.loc[y, gen_list] = get_as_dense(n, "Generator", "p_min_pu")[gen_list].clip(lower=min_pu_override.loc[carrier, y])
+
 """
 ********************************************************************************
     Functions to define and attach storage units to the network  
 ********************************************************************************
 """
-def attach_fixed_storage(n): 
-    carriers = ["phs", "battery"]
+def attach_fixed_storage(n, carriers): 
+    carriers = carriers["fixed"]["storage"]
     start_year = get_start_year(n.snapshots, n.multi_invest)
     
-    storage = load_components_from_model_file(carriers, start_year, snakemake.config["electricity"])
-    storage = map_components_to_buses(storage, snakemake.input.supply_regions, snakemake.config["crs"])
+    storage = load_fixed_components(carriers, start_year, snakemake.config["electricity"], "StorageUnit")
+    storage = map_components_to_buses(storage, snakemake.input.supply_regions, snakemake.config["gis"]["crs"])
 
-    max_hours_col = [col for col in storage.columns if "_max_hours" in col]
-    efficiency_col = [col for col in storage.columns if "_efficiency" in col]
-
-    storage["max_hours"] = storage[max_hours_col].sum(axis=1)
-    storage["efficiency_store"] = storage[efficiency_col]**0.5
-    storage["efficiency_dispatch"] = storage[efficiency_col]**0.5
+    storage["efficiency_store"] = storage["efficiency"]**0.5
+    storage["efficiency_dispatch"] = storage["efficiency"]**0.5
     storage["cyclic_state_of_charge"], storage["p_nom_extendable"] = True, False
     storage["p_min_pu"] = -1
 
     storage = drop_non_pypsa_attrs(n, "StorageUnit", storage)
     n.import_components_from_dataframe(storage, "StorageUnit")
 
-def attach_extendable_storage(n, ext_param):
+def attach_extendable_storage(n, carriers):
+    st_carriers = carriers["extendable"]["storage"]
     config = snakemake.config["electricity"]
     ext_years = get_investment_periods(n.snapshots, n.multi_invest)
-    ext_storage_list = define_extendable_tech(ext_years, "StorageUnit", ext_param)
+    ext_param = load_extendable_parameters(n, scenario_setup, snakemake)
+    ext_storage_list = define_extendable_tech(carriers, ext_years, "StorageUnit", ext_param)
     storage = set_extendable_params("StorageUnit", ext_storage_list, ext_param, **config)
-    storage = drop_non_pypsa_attrs(n, "StorageUnit", storage)
-    n.import_components_from_dataframe(storage, "StorageUnit")
-
+    storage = set_annual_build_limits(storage, ext_years, "StorageUnit")
+    if len(ext_storage_list):
+        storage = drop_non_pypsa_attrs(n, "StorageUnit", storage)
+        n.import_components_from_dataframe(storage, "StorageUnit")
 
 """
 ********************************************************************************
@@ -895,43 +1073,43 @@ def attach_extendable_storage(n, ext_param):
 ********************************************************************************
 """
 
-def convert_lines_to_links(n):
-    """
-    Convert AC lines to DC links for multi-decade optimisation with line
-    expansion.
+# def convert_lines_to_links(n):
+#     """
+#     Convert AC lines to DC links for multi-decade optimisation with line
+#     expansion.
 
-    Losses of DC links are assumed to be 3% per 1000km
-    """
-    years = get_investment_periods(n.snapshots, n.multi_invest)
+#     Losses of DC links are assumed to be 3% per 1000km
+#     """
+#     years = get_investment_periods(n.snapshots, n.multi_invest)
 
-    logger.info("Convert AC lines to DC links to perform multi-decade optimisation.")
-    extendable = False
-    p_nom = n.lines.s_nom
+#     logger.info("Convert AC lines to DC links to perform multi-decade optimisation.")
+#     extendable = False
+#     p_nom = n.lines.s_nom
 
-    for y in years:
-        n.madd(
-            "Link",
-            n.lines.index + "_" + str(y),
-            bus0 = n.lines.bus0,
-            bus1 = n.lines.bus1,
-            p_nom = p_nom,
-            p_nom_min = n.lines.s_nom,
-            p_min_pu = -1,
-            lifetime = 100,
-            efficiency = 1 - 0.03 * n.lines.length / 1000,
-            marginal_cost = 0,
-            length = n.lines.length,
-            capital_cost = n.lines.capital_cost,
-            p_nom_extendable = extendable,
-        )
-        if y == years[0]:
-            extendable = True
-            p_nom = 0
+#     for y in years:
+#         n.madd(
+#             "Link",
+#             n.lines.index + "_" + str(y),
+#             bus0 = n.lines.bus0,
+#             bus1 = n.lines.bus1,
+#             p_nom = p_nom,
+#             p_nom_min = n.lines.s_nom,
+#             p_min_pu = -1,
+#             lifetime = 100,
+#             efficiency = 1 - 0.03 * n.lines.length / 1000,
+#             marginal_cost = 0,
+#             length = n.lines.length,
+#             capital_cost = n.lines.capital_cost,
+#             p_nom_extendable = extendable,
+#         )
+#         if y == years[0]:
+#             extendable = True
+#             p_nom = 0
 
-    # Remove AC lines
-    logger.info("Removing AC lines")
-    lines_rm = n.lines.index
-    n.mremove("Line", lines_rm)
+#     # Remove AC lines
+#     logger.info("Removing AC lines")
+#     lines_rm = n.lines.index
+#     n.mremove("Line", lines_rm)
 
 
 
@@ -940,49 +1118,39 @@ def convert_lines_to_links(n):
     Other functions
 ********************************************************************************
 """
-# def overwrite_extendable_with_committable(n, model_file, model_setup, param):
-
-#     com_i = n.generators.query("committable & p_nom_extendable").index
-
-#     if len(com_i) >= 0:
-#             logging.warning("""A generator cannot be both extendable and committable, as this would make the problem non linear. 
-#             Setting p_nom for committable generators to the extendable_max_build value in the model_file. If no build limit is
-#             specified (i.e 'unc'), the generator is returned to being extendable and the committable flag is ignored. """
-#             )
-#     else:
-#         return
-
-#     ext_years = get_investment_periods(n)
-#     fix_capacity = pd.read_excel(
-#         model_file,
-#         sheet_name='extendable_max_build',
-#         index_col=[0, 1, 3, 2, 4],
-#     ).sort_index().loc[
-#         (
-#             model_setup["extendable_build_limits"],
-#             snakemake.wildcards.regions,
-#             "Generator",
-#         ),
-#         ext_years,
-#     ]
 
 
-#     for _ in range(len(com_i)):
-#         bus = com_i.str.split("-").str[0][_]
-#         carrier = com_i.str.split("-").str[1][_]
-#         y = int(com_i.str.split("-").str[2][_])
-#         capacity = fix_capacity.loc[(bus, carrier), y]
-#         if capacity != "unc":
-#             n.generators.loc[com_i[_], "p_nom"] = capacity
-#             n.generators.loc[com_i[_], "p_nom_extendable"] = False
-#             n.generators_t.p_max_pu[com_i[_]] = 1
-#             n.generators_t.p_min_pu[com_i[_]] = 0
-#             n.generators.loc[com_i[_], "p_min_pu"] = param.loc[("min_stable_level", carrier), y]
-#         else:
-#             logging.warning(f"Removing committable flag from generator {com_i[_]} and defaulting to extendable.")
-#             n.generators.loc[com_i[_], "committable"] = False
-            
-        
+def check_pu_profiles(clean_flag):
+    p_max_pu = get_as_dense(n, "Generator", "p_max_pu")
+    p_min_pu = get_as_dense(n, "Generator", "p_min_pu")
+
+    errors = p_max_pu < p_min_pu
+    error_lst = errors.any()
+    if errors.any().any() and not clean_flag:
+        raise ValueError(
+            f'Some generators have p_max_pu < p_min_pu in some hours. This will cause the problem to be infeasible.\nEither set clean_pu_profiles under config to True or correct input assumptions. Errors can be found in the follwing generators:\n{error_lst[error_lst].index}'
+        )
+    elif errors.any().any() and clean_flag:
+        logging.info(f"Adjusting by p_max_pu for {error_lst[error_lst].index}")
+        n.generators_t.p_max_pu = p_max_pu.where(~errors, p_min_pu)
+
+
+def add_carrier_emissions(n):
+
+    emissions = (
+        pd.read_excel(
+            model_file, 
+            sheet_name='emissions',
+            index_col=[0,1])
+    )
+    co2_emissions = emissions.loc["co2_emissions"]
+    
+    n.madd(
+        "Carrier", 
+        co2_emissions.index,
+        co2_emissions = co2_emissions["Value"],
+     )
+
 def add_nice_carrier_names(n):
 
     carrier_i = n.carriers.index
@@ -1030,11 +1198,15 @@ if __name__ == "__main__":
         snakemake = mock_snakemake(
             "add_electricity", 
             **{
-                "model_file":"val-LC-UNC",
-                "regions":"1-supply",
-                "resarea":"redz",
+                "model_type":"capacity",
+                "scenario":"AMBITIONS_LC2",
             }
         )
+
+    scenario_path = snakemake.output[0].split("capacity")[0]
+    if not os.path.exists(scenario_path):
+        os.makedirs(scenario_path)
+
     #configure_logging(snakemake, skip_handlers=False)
     logging.basicConfig(
         level=logging.INFO,
@@ -1042,66 +1214,60 @@ if __name__ == "__main__":
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    model_file = pd.ExcelFile(snakemake.input.model_file)
-    model_setup = (
-        pd.read_excel(
-            model_file, 
-            sheet_name="model_setup",
-            index_col=[0])
-            .loc[snakemake.wildcards.model_file]
-    )
+    scenario_setup = load_scenario_definition(snakemake)
 
-    projections = (
-        pd.read_excel(
-            model_file, 
-            sheet_name="projected_parameters",
-            index_col=[0,1])
-            .loc[model_setup["projected_parameters"]]
-    )
+    logging.info("Loading carriers from scenario file")
+    carriers = get_carriers_from_model_file(scenario_setup)
 
-    #opts = snakemake.wildcards.opts.split("-")
     logging.info(f"Loading base network {snakemake.input.base_network}")
     n = pypsa.Network(snakemake.input.base_network)
 
-    logging.info("Preparing extendable parameters")
-    param = load_extendable_parameters(n, model_file, model_setup, snakemake)
-
-    #wind_solar_profiles = xr.open_dataset(snakemake.input.wind_solar_profiles).to_dataframe()
-    #eskom_profiles = generate_eskom_re_profiles(n)
     logging.info("Attaching load")
-    attach_load(n, projections.loc["annual_demand",:])
-
-    if snakemake.wildcards.regions!="1-supply":
-        update_transmission_costs(n, param)
+    attach_load(n, scenario_setup)
 
     logging.info("Attaching fixed generators")
-    attach_fixed_generators(n, param)
+    attach_fixed_generators(n, carriers)
 
     logging.info("Attaching extendable generators")
-    attach_extendable_generators(n, param)
+    attach_extendable_generators(n, carriers)
 
     logging.info("Attaching fixed storage")
-    attach_fixed_storage(n)
+    attach_fixed_storage(n, carriers)
 
     logging.info("Attaching extendable storage")
-    attach_extendable_storage(n, param)
+    attach_extendable_storage(n, carriers)
+
+    logging.info("Adjusting for changes in fuel price over time")
+    adjust_for_variable_fuel_costs(n)
 
     adj_by_pu = snakemake.config["electricity"]["adjust_by_p_max_pu"]
     logging.info(f"Adjusting by p_max_pu for {list(adj_by_pu.keys())}")
     adjust_by_p_max_pu(n, adj_by_pu)
+
+    logging.info("Applying coal minimum generation threshold")
+    set_hourly_coal_generation_threshold(n)
+
+    logging.info("Applying phase in of extendable generators")
+    apply_extendable_phase_in(n)
+    
+    logging.info("Checking pu_profiles for infeasibilities")
+    check_pu_profiles(snakemake.config["electricity"]["clean_pu_profiles"])
 
     if snakemake.config["solving"]["options"]["load_shedding"]:
         ls_cost = snakemake.config["costs"]["load_shedding"]
         logging.info("Adding load shedding")
         add_load_shedding(n, ls_cost) 
 
-    _add_missing_carriers_from_costs(n, param, n.generators.carrier.unique())
-    _add_missing_carriers_from_costs(n, param, n.storage_units.carrier.unique())
-
-    add_nice_carrier_names(n)
+    add_missing_carriers(n)
 
     logging.info("Exporting network.")
     if n.multi_invest:
         initial_ramp_rate_fix(n)
 
-    n.export_to_netcdf(snakemake.output[0])
+    if snakemake.wildcards.model_type == "dispatch":
+        for y in n.investment_periods:
+            sns = n.snapshots[n.snapshots.get_level_values("period")==y]
+            n_y = single_year_network_copy(n, snapshots=sns, investment_periods=sns.unique("period"))
+            n_y.export_to_netcdf(f"{scenario_path}/dispatch_{y}.nc") 
+    else:
+        n.export_to_netcdf(snakemake.output[0])

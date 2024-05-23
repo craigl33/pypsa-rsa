@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: CC0-1.0
 
-name: pypsa-za2
+name: pypsa-earth
 channels:
 - bioconda
 - gurobi
@@ -512,4 +512,4 @@ dependencies:
   - pybind11==2.10.4
   - tsam==2.2.2
   - vresutils==0.3.2.dev11+g150c1be
-cond
+prefix: /home/max/anaconda3/envs/pypsa-earth
