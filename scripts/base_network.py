@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText:  PyPSA-ZA2, PyPSA-ZA, PyPSA-Earth and PyPSA-Eur Authors
+# SPDX-FileCopyrightText:  PyPSA-RSA, PyPSA-ZA, PyPSA-Earth and PyPSA-Eur Authors
 # # SPDX-License-Identifier: MIT
 # -*- coding: utf-8 -*-
 
@@ -60,7 +60,9 @@ import logging
 import numpy as np
 import pandas as pd
 import pypsa
+import os
 import re
+from _helpers import load_scenario_definition
 
 def create_network():
     n = pypsa.Network()
@@ -70,11 +72,18 @@ def create_network():
 def load_buses_and_lines(n, line_config):
     buses = gpd.read_file(snakemake.input.buses)
     buses.set_index("name", drop=True,inplace=True)
-    buses = buses[["POP2016", "GVA2016"]]
-    buses["v_nom"] = line_config["v_nom"]
-    if snakemake.wildcards.regions != "1-supply":
+    buses = buses[["x","y","v_nom","POP_2016", "GVA_2016",]]
+
+    if len(buses) != 1:
         lines = gpd.read_file(snakemake.input.lines, index_col=[1])
-        lines = lines[["bus0","bus1","length", line_config["s_rating"] + "_limit"]]
+        lines_reverse = lines.copy()
+        lines_reverse.bus0 = lines.bus1.values
+        lines_reverse.bus1 = lines.bus0.values
+
+        lines.index = lines.bus0 + ['-'] + lines.bus1
+        lines_reverse.index = lines_reverse.bus0 + ['-'] + lines_reverse.bus1
+
+        lines = pd.concat([lines, lines_reverse])
     else:
         lines = []
     return buses, lines
@@ -95,33 +104,51 @@ def set_snapshots(n, years):
 
 def set_investment_periods(n, years):
     n.investment_periods = years
-    n.investment_period_weightings["years"] = list(np.diff(years)) + [5]
+    delta_years = list(np.diff(years))
+    n.investment_period_weightings["years"] = delta_years + [delta_years[-1]]
     T = 0
     for period, nyears in n.investment_period_weightings.years.items():
         discounts = [(1 / (1 + snakemake.config["costs"]["discount_rate"]) ** t) for t in range(T, T + nyears)]
         n.investment_period_weightings.at[period, "objective"] = sum(discounts)
         T += nyears
 
+def line_derating(n, lines):
+    # convert each entry of n.investment_periods to str
+    pu_max = pd.DataFrame(1, index = n.snapshots, columns=lines.index)
+    for y in n.investment_periods:
+        for l in pu_max.columns:
+            pu_max.loc[y, l] = lines.loc[l, str(y)]
+
+    return pu_max
+
 def add_components_to_network(n, buses, lines, line_config):
     n.import_components_from_dataframe(buses, "Bus")
-    if snakemake.wildcards.regions != "1-supply":
-        lines["type"] = line_config["type"][line_config["v_nom"]]
-        lines = lines.rename(columns={line_config["s_rating"] + "_limit": "s_nom_min"})
-        lines = lines.assign(s_nom_extendable=True, type=line_config["type"][line_config["v_nom"]])
-        n.import_components_from_dataframe(lines, "Line")
-
-def get_years():
-    years = (
-        pd.read_excel(
-            snakemake.input.model_file,
-            sheet_name="model_setup",
-            index_col=0
+#   Only a transfer model is used, with allowable efficiency losses
+#   This requires two uni-directional links between nodes as PyPSA efficiency is not bi-directional
+    if len(buses) != 1:
+        pu_max = line_derating(n, lines)
+        n.madd(
+            "Link",
+            lines.index,
+            p_nom = lines["St_Clair_limit_n1"],
+            bus0 = lines["bus0"],
+            bus1 = lines["bus1"],
+            efficiency = 1-line_config["losses"]*lines["length"]/1000,
+            p_max_pu = pu_max,
+            p_min_pu = 0, # single direction 2 links represent 1 line
+            lifetime = 100,
+            build_year = n.investment_periods[0]-1,
+            p_nom_extendable = False,
         )
-        .loc[snakemake.wildcards.model_file,"simulation_years"]
-    )
+        
+def get_years():
+    scenario_setup = load_scenario_definition(snakemake)
+    years = scenario_setup.loc["simulation_years"]
 
     if not isinstance(years, int):
-        years = list(map(int, re.split(",\s*", years))) 
+        years = list(map(int, re.split(",\s*", years)))
+        if snakemake.wildcards.model_type == "dispatch":
+            years = list(range(2024, np.max(years) + 1)) 
         n.multi_invest = 1
     else:
         n.multi_invest = 0 
@@ -134,8 +161,8 @@ if __name__ == "__main__":
         snakemake = mock_snakemake(
             "base_network", 
             **{
-                "model_file":"val-LC-UNC",
-                "regions":"1-supply",
+                "model_type":"capacity",
+                "scenario":"CNS_G_RB_CB_10_7",
             }
         )
     line_config = snakemake.config["lines"]

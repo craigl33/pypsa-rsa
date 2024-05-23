@@ -62,15 +62,15 @@ from pypsa.linopt import get_var, write_objective, define_constraints, linexpr
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense, expand_series
 from pypsa.optimization.common import reindex
 
-from _helpers import configure_logging, clean_pu_profiles, remove_leap_day, normalize_and_rename_df, assign_segmented_df_to_network
-from add_electricity import load_extendable_parameters, update_transmission_costs
+from _helpers import configure_logging, remove_leap_day, normalize_and_rename_df, assign_segmented_df_to_network, load_scenario_definition
+from add_electricity import load_extendable_parameters#, update_transmission_costs
 from concurrent.futures import ProcessPoolExecutor
 import xarray as xr
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning) # Comment out for debugging and development
-from custom_constraints import set_operational_limits, ccgt_steam_constraints, define_reserve_margin
+from custom_constraints import set_operational_limits, ccgt_steam_constraints, reserve_margin_constraints, annual_co2_constraints
 idx = pd.IndexSlice
-logger = logging.getLogger(__name__)
+import os
 
 """
 ********************************************************************************
@@ -78,20 +78,28 @@ logger = logging.getLogger(__name__)
 ********************************************************************************
 """
 def set_extendable_limits_global(n):
+
     ext_years = n.investment_periods if n.multi_invest else [n.snapshots[0].year]
     sense = {"max": "<=", "min": ">="}
     ignore = {"max": "unc", "min": 0}
 
+    # Initialize an empty dictionary for global limits
+    global_limits = {}
 
-    global_limits = {
-        lim: pd.read_excel(
-            model_file,
-            sheet_name=f'extendable_{lim}_build',
-            index_col=[0, 1, 3, 2, 4],
-        ).loc[(model_setup["extendable_build_limits"], "global", slice(None), slice(None)), ext_years]
-        for lim in ["max", "min"]
-    }
+    # Iterate over possible limits and try to read them from the Excel file
+    for lim in ["max", "min"]:
+        try:
+            global_limit = pd.read_excel(
+                os.path.join(scenario_setup["sub_path"], "extendable_technologies.xlsx"),
+                sheet_name=f'{lim}_total_installed',
+                index_col=[0, 1, 3, 2, 4],
+            ).loc[(scenario_setup[f"extendable_{lim}_total"], "global", slice(None), slice(None)), ext_years]
+            # If successfully read, add to the global_limits dictionary
+            global_limits[lim] = global_limit
+        except Exception:
+            logging.warning(f"No global {lim} limit found in model file. Skipping.")
 
+    # Now global_limits only contains keys for successfully read sheets
     for lim, global_limit in global_limits.items():
         global_limit.index = global_limit.index.droplevel([0, 1, 2, 3])
         global_limit = global_limit.loc[~(global_limit == ignore[lim]).all(axis=1)]
@@ -119,10 +127,10 @@ def set_extendable_limits_per_bus(n):
 
     bus_limits = {
         lim: pd.read_excel(
-            model_file,
-            sheet_name=f'extendable_{lim}_build',
+            os.path.join(scenario_setup["sub_path"], "extendable_technologies.xlsx"),
+            sheet_name=f'{lim}_total_installed',
             index_col=[0, 1, 3, 2, 4],
-        ).loc[(model_setup["extendable_build_limits"], snakemake.wildcards.regions, slice(None)), ext_years]
+        ).loc[(scenario_setup[f"extendable_{lim}_total"], scenario_setup["regions"], slice(None)), ext_years]
         for lim in ["max", "min"]
     }
 
@@ -147,10 +155,6 @@ def set_extendable_limits_per_bus(n):
 ********************************************************************************
 """
 
-def add_co2limit(n):
-    n.add("GlobalConstraint", "CO2Limit",
-          carrier_attribute="co2_emissions", sense="<=",
-          constant=snakemake.config["electricity"]["co2limit"])
 
 def add_emission_prices(n, emission_prices=None, exclude_co2=False):
     if emission_prices is None:
@@ -160,82 +164,60 @@ def add_emission_prices(n, emission_prices=None, exclude_co2=False):
     n.generators["marginal_cost"] += n.generators.carrier.map(ep)
     n.storage_units["marginal_cost"] += n.storage_units.carrier.map(ep)
 
-def add_co2limit(n):
-    n.add("GlobalConstraint", "CO2Limit",
-          carrier_attribute="co2_emissions", 
-          sense="<=",
-          constant=snakemake.config['electricity']['co2limit'])
+# """
+# ********************************************************************************
+#     Transmission constraints
+# ********************************************************************************
+# """
+
+# def set_line_s_max_pu(n):
+#     s_max_pu = snakemake.config["lines"]["s_max_pu"]
+#     n.lines["s_max_pu"] = s_max_pu
+#     logger.info(f"N-1 security margin of lines set to {s_max_pu}")
 
 
-def add_emission_prices(n, emission_prices={"co2": 0.0}, exclude_co2=False):
-    if exclude_co2:
-        emission_prices.pop("co2")
-    ep = (
-        pd.Series(emission_prices).rename(lambda x: x + "_emissions")
-        * n.carriers.filter(like="_emissions")
-    ).sum(axis=1)
-    gen_ep = n.generators.carrier.map(ep) / n.generators.efficiency
-    n.generators["marginal_cost"] += gen_ep
-    su_ep = n.storage_units.carrier.map(ep) / n.storage_units.efficiency_dispatch
-    n.storage_units["marginal_cost"] += su_ep
+# def set_transmission_limit(n, ll_type, factor, costs, Nyears=1):
+#     links_dc_b = n.links.carrier == "DC" if not n.links.empty else pd.Series()
 
+#     _lines_s_nom = (
+#         np.sqrt(3)
+#         * n.lines.type.map(n.line_types.i_nom)
+#         * n.lines.num_parallel
+#         * n.lines.bus0.map(n.buses.v_nom)
+#     )
+#     lines_s_nom = n.lines.s_nom.where(n.lines.type == "", _lines_s_nom)
 
+#     col = "capital_cost" if ll_type == "c" else "length"
+#     ref = (
+#         lines_s_nom @ n.lines[col]
+#         + n.links.loc[links_dc_b, "p_nom"] @ n.links.loc[links_dc_b, col]
+#     )
 
+#     update_transmission_costs(n, costs)
 
-"""
-********************************************************************************
-    Transmission constraints
-********************************************************************************
-"""
+#     if factor == "opt" or float(factor) > 1.0:
+#         n.lines["s_nom_min"] = lines_s_nom
+#         n.lines["s_nom_extendable"] = True
 
-def set_line_s_max_pu(n):
-    s_max_pu = snakemake.config["lines"]["s_max_pu"]
-    n.lines["s_max_pu"] = s_max_pu
-    logger.info(f"N-1 security margin of lines set to {s_max_pu}")
+#         n.links.loc[links_dc_b, "p_nom_min"] = n.links.loc[links_dc_b, "p_nom"]
+#         n.links.loc[links_dc_b, "p_nom_extendable"] = True
 
+#     if factor != "opt":
+#         con_type = "expansion_cost" if ll_type == "c" else "volume_expansion"
+#         rhs = float(factor) * ref
+#         n.add(
+#             "GlobalConstraint",
+#             f"l{ll_type}_limit",
+#             type=f"transmission_{con_type}_limit",
+#             sense="<=",
+#             constant=rhs,
+#             carrier_attribute="AC, DC",
+#         )
+#     return n
 
-def set_transmission_limit(n, ll_type, factor, costs, Nyears=1):
-    links_dc_b = n.links.carrier == "DC" if not n.links.empty else pd.Series()
-
-    _lines_s_nom = (
-        np.sqrt(3)
-        * n.lines.type.map(n.line_types.i_nom)
-        * n.lines.num_parallel
-        * n.lines.bus0.map(n.buses.v_nom)
-    )
-    lines_s_nom = n.lines.s_nom.where(n.lines.type == "", _lines_s_nom)
-
-    col = "capital_cost" if ll_type == "c" else "length"
-    ref = (
-        lines_s_nom @ n.lines[col]
-        + n.links.loc[links_dc_b, "p_nom"] @ n.links.loc[links_dc_b, col]
-    )
-
-    update_transmission_costs(n, costs)
-
-    if factor == "opt" or float(factor) > 1.0:
-        n.lines["s_nom_min"] = lines_s_nom
-        n.lines["s_nom_extendable"] = True
-
-        n.links.loc[links_dc_b, "p_nom_min"] = n.links.loc[links_dc_b, "p_nom"]
-        n.links.loc[links_dc_b, "p_nom_extendable"] = True
-
-    if factor != "opt":
-        con_type = "expansion_cost" if ll_type == "c" else "volume_expansion"
-        rhs = float(factor) * ref
-        n.add(
-            "GlobalConstraint",
-            f"l{ll_type}_limit",
-            type=f"transmission_{con_type}_limit",
-            sense="<=",
-            constant=rhs,
-            carrier_attribute="AC, DC",
-        )
-    return n
-
-def set_line_nom_max(n, s_nom_max_set=np.inf, p_nom_max_set=np.inf):
-    n.lines.s_nom_max.clip(upper=s_nom_max_set, inplace=True)
-    n.links.p_nom_max.clip(upper=p_nom_max_set, inplace=True)
+# def set_line_nom_max(n, s_nom_max_set=np.inf, p_nom_max_set=np.inf):
+#     n.lines.s_nom_max.clip(upper=s_nom_max_set, inplace=True)
+#     n.links.p_nom_max.clip(upper=p_nom_max_set, inplace=True)
 
 """
 ********************************************************************************
@@ -244,7 +226,7 @@ def set_line_nom_max(n, s_nom_max_set=np.inf, p_nom_max_set=np.inf):
 """
 
 def average_every_nhours(n, offset):
-    logger.info(f"Resampling the network to {offset}")
+    logging.info(f"Resampling the network to {offset}")
     m = n.copy()#with_time=False)
     snapshots_unstacked = n.snapshots.get_level_values(1)
 
@@ -349,40 +331,46 @@ def apply_time_segmentation(n, segments, config):
 
     return n
 
+def calc_emissions(n, scenario_setup):
 
+    carrier_emissions = pd.read_excel(
+        os.path.join(scenario_setup["sub_path"], "extendable_technologies.xlsx"), 
+        sheet_name = "parameters",
+        index_col = [0,2,1],
+    ).sort_index().loc["default", "co2_emissions"].drop(["unit","source"], axis=1)
+    gens = n.generators.query("carrier in @carrier_emissions.index").index
+    efficiency = n.generators.loc[gens, "efficiency"]
 
-"""
-********************************************************************************
-    Setup unit commitment for steam generators
-********************************************************************************
-"""
-# def set_unit_committment(n, snapshots, model_file, model_setup):
-#     ccgt_hrsg = n.generators.query("carrier == 'ccgt_steam' & p_nom_extendable").index
-#     n.generators[ccgt_hrsg].p_nom_extendable = False
-#     n.generators[ccgt_hrsg].committable = True
+    co2_emissions = pd.DataFrame(index=gens, columns = n.investment_periods)
 
-#     # Get unit committment parameters
-#     uc_params = pd.read_excel(
-#         model_file,
-#         sheet_name="extendable_parameters",
-#         index_col=[0, 1],
-#     ).loc[(model_setup["extendable_parameters"], "ccgt_steam")]
-#     uc_params = uc_params.reset_index(drop=True).set_index("parameter")
+    energy = n.generators_t.p[gens].groupby(level=0).sum()
 
-    # # Set unit committment parameters
-    # uc_list = ["p_min_pu","min_up_time", "min_down_time", "ramp_limit_up", "ramp_limit_down", "start_up_cost", "shut_down_cost"]
-    
+    for y in n.investment_periods:
+        for gen in gens:
+            co2_emissions.loc[gen, y] = energy.loc[y, gen] * carrier_emissions.loc[n.generators.carrier[gen], y] / efficiency[gen]
 
+    return co2_emissions.sum()/1e6
 
+def calc_cumulative_new_capacity(n):
+    carriers = list(n.generators.carrier.unique())+list(n.storage_units.carrier.unique())
+    new_capacity = pd.DataFrame(index=carriers, columns = [2024]+list(n.investment_periods))
+    for period in [2024]+list(n.investment_periods):
+        for carrier in n.generators.carrier.unique():
+            new_capacity.loc[carrier,period] = n.generators.p_nom_opt[(n.generators.carrier==carrier) & (n.generators.build_year<=period)].sum()
+        for carrier in n.storage_units.carrier.unique():
+            new_capacity.loc[carrier,period] = n.storage_units.p_nom_opt[(n.storage_units.carrier==carrier) & (n.storage_units.build_year<=period)].sum()    
+    return new_capacity
 
 def solve_network(n, sns):
     
     n.optimize.create_model(snapshots = sns, multi_investment_periods = n.multi_invest)
     # Custom constraints
-    set_operational_limits(n, sns, model_file, model_setup)
-    ccgt_steam_constraints(n, sns, model_file, model_setup, snakemake)
-    define_reserve_margin(n, sns, model_file, model_setup, snakemake)
-
+    set_operational_limits(n, sns, scenario_setup)
+    ccgt_steam_constraints(n, sns, snakemake)
+    reserve_margin_constraints(n, sns, scenario_setup, snakemake)
+    
+    param = load_extendable_parameters(n, scenario_setup, snakemake)
+    annual_co2_constraints(n, sns, param, scenario_setup)
     solver_name = snakemake.config["solving"]["solver"].pop("name")
     solver_options = snakemake.config["solving"]["solver"].copy()
     n.optimize.solve_model(solver_name=solver_name, solver_options=solver_options)
@@ -393,27 +381,15 @@ if __name__ == "__main__":
         snakemake = mock_snakemake(
             'prepare_and_solve_network', 
             **{
-                'model_file':'val-LC-UNC',
-                'regions':'1-supply',
-                'resarea':'redz',
-                'll':'copt',
-                'opts':'LC'
+                'scenario':'LC_UNC',
             }
         )
-    #configure_logging(snakemake)
     logging.info("Preparing costs")
-    n = pypsa.Network(snakemake.input[0])
-    model_file = pd.ExcelFile(snakemake.input.model_file)
-    model_setup = (
-        pd.read_excel(
-            model_file, 
-            sheet_name="model_setup",
-            index_col=[0])
-            .loc[snakemake.wildcards.model_file]
-    )
-    #set_unit_committment(n, n.snapshots, model_file, model_setup)
 
-    opts = snakemake.wildcards.opts.split("-")
+    n = pypsa.Network(snakemake.input[0])
+    scenario_setup = load_scenario_definition(snakemake)
+    
+    opts = scenario_setup["options"].split("-")
     for o in opts:
         m = re.match(r"^\d+h$", o, re.IGNORECASE)
         if m is not None:
@@ -432,34 +408,8 @@ if __name__ == "__main__":
             n = apply_time_segmentation(n, m[0][:-3], snakemake.config["tsam_clustering"])
             break
 
-
-    for o in opts:
-        if "Co2L" in o:
-            m = re.findall("[0-9]*\.?[0-9]+$", o)
-            if len(m) > 0:
-                co2limit = float(m[0]) * snakemake.config["electricity"]["co2base"]
-                add_co2limit(n)
-                logging.info("Setting CO2 limit according to wildcard value.")
-            else:
-                add_co2limit(n)
-                logging.info("Setting CO2 limit according to config value.")
-            break
-
-    logging.info("Setting transmission constraints")
-    Nyears = n.snapshot_weightings.objective.sum() / 8760.0        
-    set_line_s_max_pu(n)
-    ll_type, factor = snakemake.wildcards.ll[0], snakemake.wildcards.ll[1:]
-    param = load_extendable_parameters(n, model_file, model_setup, snakemake)
-
-    #set_transmission_limit(n, ll_type, factor, costs, Nyears)
-
-    set_line_nom_max(
-        n,
-        s_nom_max_set=snakemake.config["lines"].get("s_nom_max,", np.inf),
-        p_nom_max_set=snakemake.config["links"].get("p_nom_max,", np.inf),
-    )
     logging.info("Setting global and regional build limits")
-    if snakemake.wildcards.regions != "1-supply": #covered under single bus limits
+    if len(n.buses) != 1: #covered under single bus limits
         set_extendable_limits_global(n) 
     set_extendable_limits_per_bus(n)
 
@@ -467,4 +417,7 @@ if __name__ == "__main__":
     solve_network(n, n.snapshots)
     
     n.export_to_netcdf(snakemake.output[0])
+    n.statistics().to_csv(snakemake.output[1])
+    calc_emissions(n, scenario_setup).to_csv(snakemake.output[2])
+    #calc_cumulative_new_capacity(n).to_csv(snakemake.output[3])
 

@@ -2,182 +2,78 @@ configfile: "config.yaml"
 
 from os.path import normpath, exists, isdir
 
-ATLITE_NPROCESSES = config["atlite"].get("nprocesses", 4)
-
 wildcard_constraints:
-    resarea="[a-zA-Z0-9]+",
-    model_file="[-a-zA-Z0-9]+",
-    regions="[-+a-zA-Z0-9]+",
-    opts="[-+a-zA-Z0-9]+"
+    model_type="[a-zA-Z0-9_]+",
+    scenarios_to_run="[-a-zA-Z0-9_]+",
+import pandas as pd
+import os
+scenarios = pd.read_excel(
+    os.path.join("scenarios",config["scenarios"]["folder"],config["scenarios"]["setup"]),
+    sheet_name="scenario_definition", 
+    index_col=0
+)
+scenarios_to_run = scenarios[scenarios["run_scenario"] == 1]
 
-rule solve_scenario_matrix:
+rule all:
+    input:
+        "results/solve_all_scenarios_complete"
+
+rule solve_all_scenarios:
     input:
         expand(
-            "results/networks/solved_{model_file}_{regions}_{resarea}_l{ll}_{opts}.nc",
-            **config["scenario_matrix"]
-        ),
+            "results/" + config["scenarios"]["folder"] + "/network/capacity-{scenario}.nc",
+            scenario=scenarios_to_run.index,
+        )
+    output:
+        touch("results/solve_all_scenarios_complete")
 
-if config["enable"]["build_natura_raster"]:
-    rule build_natura_raster:
-        input:
-            protected_areas = "data/bundle/SAPAD_OR_2017_Q2",
-            conservation_areas = "data/bundle/SACAD_OR_2017_Q2",
-            cutouts=expand("cutouts/{cutouts}.nc", **config["atlite"]),
-        output:
-            "resources/natura.tiff",
-        resources:
-            mem_mb=5000,
-        log:
-            "logs/build_natura_raster.log",
-        script:
-            "scripts/build_natura_raster.py"
-
-if config['enable']['build_cutout']:
-    rule build_cutout:
-        input:
-            regions_onshore='data/bundle/rsa_supply_regions.gpkg',
-        output:
-            "cutouts/{cutout}.nc",
-        log:
-            "logs/build_cutout/{cutout}.log",
-        benchmark:
-            "benchmarks/build_cutout_{cutout}"
-        threads: ATLITE_NPROCESSES
-        resources:
-            mem_mb=ATLITE_NPROCESSES * 1000,
-        script:
-            "scripts/build_cutout.py"
-
-if not config['hydro_inflow']['disable']:
-    rule build_inflow_per_country:
-        input: EIA_hydro_gen="data/EIA_hydro_generation_2011_2014.csv"
-        output: "resources/hydro_inflow.csv"
-        benchmark: "benchmarks/inflow_per_country"
-        threads: 1
-        resources: mem_mb=1000
-        script: "scripts/build_inflow_per_country.py"
-
-
-if config['enable']['build_topology']: 
-    rule build_topology:
-        input:
-            supply_regions='data/bundle/rsa_supply_regions.gpkg',
-            existing_lines='data/bundle/Eskom/Existing_Lines.shp',
-            planned_lines='data/bundle/Eskom/Planned_Lines.shp',        
-        output:
-            buses='resources/buses_{regions}.geojson',
-            lines='resources/lines_{regions}.geojson',
-            #parallel_lines='resources/parallel_lines_{regions}.csv',
-        threads: 1
-        script: "scripts/build_topology.py"
+rule build_topology:
+    input:
+        supply_regions=config["gis"]["path"] + "/supply_regions/rsa_supply_regions.gpkg",
+        existing_lines=config["gis"]["path"] + "/transmission_grid/eskom_gcca_2022/Existing_Lines.shp",
+        planned_lines=config["gis"]["path"] + "/transmission_grid/tdp_digitised/TDP_2023_32.shp",
+        gdp_pop_data=config["gis"]["path"] + "/CSIR/Mesozones/Mesozones.shp",        
+    output:
+        buses="resources/"+config["scenarios"]["folder"]+"/buses-{scenario}.geojson",
+        lines="resources/"+config["scenarios"]["folder"]+"/lines-{scenario}.geojson",
+    threads: 1
+    script: "scripts/build_topology.py"
 
 rule base_network:
     input:
-        model_file="data/model_file.xlsx",
-        buses='resources/buses_{regions}.geojson',
-        lines='resources/lines_{regions}.geojson',
-    output: "networks/base_{model_file}_{regions}.nc",
-    benchmark: "benchmarks/base_{model_file}_{regions}"
+        buses="resources/" + config["scenarios"]["folder"] + "/buses-{scenario}.geojson",
+        lines="resources/" + config["scenarios"]["folder"] + "/lines-{scenario}.geojson",
+    output: "networks/" + config["scenarios"]["folder"] + "/base/{model_type}-{scenario}.nc",
     threads: 1
     resources: mem_mb=1000
     script: "scripts/base_network.py"
 
-if config['enable']['build_renewable_profiles'] & ~config['enable']['use_eskom_wind_solar']: 
-    rule build_renewable_profiles:
-        input:
-            regions = 'resources/buses_{regions}.geojson',#'resources/onshore_shapes_{regions}.geojson',
-            resarea = lambda w: "data/bundle/" + config['data']['resarea'][w.resarea],
-            natura=lambda w: (
-                "data/bundle/landuse_without_protected_conservation.tiff"
-                if config["renewable"][w.technology]["natura"]
-                else []
-            ),
-            cutout=lambda w: "cutouts/"+ config["renewable"][w.technology]["cutout"] + ".nc",
-            gwa_map="data/bundle/ZAF_wind-speed_100m.tif",
-            salandcover = 'data/bundle/SALandCover_OriginalUTM35North_2013_GTI_72Classes/sa_lcov_2013-14_gti_utm35n_vs22b.tif'
-        output:
-            profile="resources/profile_{technology}_{regions}_{resarea}.nc",
-            
-        log:
-            "logs/build_renewable_profile_{technology}_{regions}_{resarea}.log",
-        benchmark:
-            "benchmarks/build_renewable_profiles_{technology}_{regions}_{resarea}"
-        threads: ATLITE_NPROCESSES
-        resources:
-            mem_mb=ATLITE_NPROCESSES * 5000,
-        wildcard_constraints:
-            technology="(?!hydro).*",  # Any technology other than hydro
-        script:
-            "scripts/build_renewable_profiles.py"
-
-if ~config['enable']['use_eskom_wind_solar']:
-    renewable_carriers = config["renewable"] 
-else:
-    renewable_carriers=[]
-
 rule add_electricity:
     input:
-        # **{
-        #     f"profile_{tech}": f"resources/profile_{tech}_"+ "{regions}_{resarea}.nc"
-        #     for tech in renewable_carriers
-        # },
-        base_network='networks/base_{model_file}_{regions}.nc',
-        supply_regions='resources/buses_{regions}.geojson',
-        load='data/bundle/SystemEnergy2009_22.csv',
-        #onwind_area='resources/area_wind_{regions}_{resarea}.csv',
-        #solar_area='resources/area_solar_{regions}_{resarea}.csv',
+        base_network="networks/" + config["scenarios"]["folder"] + "/base/{model_type}-{scenario}.nc",
+        supply_regions="resources/" + config["scenarios"]["folder"] + "/buses-{scenario}.geojson",
+        load="data/bundle/SystemEnergy2009_22.csv",
         eskom_profiles="data/eskom_pu_profiles.csv",
-        model_file="data/model_file.xlsx",
-        fixed_generators_eaf="data/Eskom EAF data.xlsx",
-    output: "networks/elec_{model_file}_{regions}_{resarea}.nc",
-    benchmark: "benchmarks/add_electricity/elec_{model_file}_{regions}_{resarea}"
+        renewable_profiles="pre_processing/resource_processing/renewable_profiles_updated.nc",
+    output: "networks/"+ config["scenarios"]["folder"] + "/elec/{model_type}-{scenario}.nc",
     script: "scripts/add_electricity.py"
 
 rule prepare_and_solve_network:
     input:
-        network="networks/elec_{model_file}_{regions}_{resarea}.nc",
-        model_file="data/model_file.xlsx",
-    output:"networks/solved_{model_file}_{regions}_{resarea}_l{ll}_{opts}.nc",
-    log:"logs/prepare_and_solve_network/solved_{model_file}_{regions}_{resarea}_l{ll}_{opts}.log",
-    benchmark:"benchmarks/prepare_and_solve_network/solved_{model_file}_{regions}_{resarea}_l{ll}_{opts}.nc",
+        network="networks/"+ config["scenarios"]["folder"] + "/elec/capacity-{scenario}.nc",
+    output: 
+        network="results/" + config["scenarios"]["folder"] + "/network/capacity-{scenario}.nc",
+        network_stats="results/" + config["scenarios"]["folder"] +"/network_stats/{scenario}.csv",
+        emissions="results/" + config["scenarios"]["folder"] +"/emissions/{scenario}.csv",
+    resources:
+        solver_slots=1
     script:
         "scripts/prepare_and_solve_network.py"
 
 rule solve_network_dispatch:
     input:
-        network="networks/solved_{model_file}_{regions}_{resarea}_l{ll}_{opts}.nc",
-        model_file="data/model_file.xlsx",
-    output:"networks/dispatch_{model_file}_{regions}_{resarea}_l{ll}_{opts}_{years}.nc",
-    log:"logs/solve_network_dispatch:/dispatch_{model_file}_{regions}_{resarea}_l{ll}_{opts}_{years}.log",
-    benchmark:"benchmarks/solve_network_dispatch:/dispatch_{model_file}_{regions}_{resarea}_l{ll}_{opts}_{years}.nc",
+        dispatch_network="networks/elec/{scenario}/dispatch-{year}.nc",
+        optimised_network_stats="networks/network_stats/{scenario}.csv",
+    output: "networks/dispatch/{scenario}/dispatch_{year}.nc",
     script:
         "scripts/solve_network_dispatch.py"
-
-
-# rule solve_network:
-#     input: 
-#         network="networks/pre_{model_file}_{regions}_{resarea}_l{ll}_{opts}.nc",
-#         model_file="data/model_file.xlsx",
-#     output: "results/networks/solved_{model_file}_{regions}_{resarea}_l{ll}_{opts}.nc"
-#     shadow: "shallow"
-#     log:
-#         solver=normpath(
-#             "logs/solve_network/solved_{model_file}_{regions}_{resarea}_l{ll}_{opts}_solver.log"
-#         ),
-#         python="logs/solve_network/solved_{model_file}_{regions}_{resarea}_l{ll}_{opts}_python.log",
-#         memory="logs/solve_network/solved_{model_file}_{regions}_{resarea}_l{ll}_{opts}_memory.log",
-#     benchmark: "benchmarks/solve_network/solved_{model_file}_{regions}_{resarea}_l{ll}_{opts}"
-#     script: "scripts/solve_network.py"
-
-
-rule plot_network:
-    input:
-        network='results/networks/solved_{model_file}_{regions}_{resarea}_l{ll}_{opts}.nc',
-        model_file="data/model_file.xlsx",
-        supply_regions='data/bundle/rsa_supply_regions.gpkg',
-        resarea = lambda w: "data/bundle/" + config['data']['resarea'][w.resarea]
-    output:
-        only_map='results/plots/{model_file}_{regions}_{resarea}_l{ll}_{opts}_{attr}.{ext}',
-        ext='results/plots/{model_file}_{regions}_{resarea}_l{ll}_{opts}_{attr}_ext.{ext}',
-    log: 'logs/plot_network/{model_file}_{regions}_{resarea}_l{ll}_{opts}_{attr}.{ext}.log'
-    script: "scripts/plot_network.py"

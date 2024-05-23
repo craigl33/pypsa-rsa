@@ -1,0 +1,65 @@
+Name,Key,latitude,longitude,capacity,BW,status,COD,Type,dc_ac_ratio,capacity_peak,yield,cf_dc,cf_ac,Comment
+Aries Solar,Aries,-29.496506,20.785119,9.65,1,operational,2014/03/20,Fixed Tilt,1.14,11,22000,0.228,0.26,
+De Aar Solar PV,De_Aar,-30.6234,24.0283,48.25,1,operational,2014/04/05,Fixed Tilt,1.04,50,85458,0.195,0.202,
+Droogfontein Solar PV Project,Droogfontein1,-28.6133,24.7468,48.25,1,operational,2014/04/06,Fixed Tilt,1.04,50,85458,0.195,0.202,
+Greefspan PV Power Plant1,Greefspan1,-29.393781,23.307708,10,1,operational,2014/04/11,Single Axis,1.1,11,26967,0.28,0.308,Modified to SAT
+Herbert PV Power Plant,Herbert,-29.0019,23.8019,19.9,1,operational,2014/04/11,Fixed Tilt,1.11,22,43231,0.224,0.248,
+Kalkbult,Kalkbult,-30.160833,24.135833,72.5,1,operational,2014/03/19,Fixed Tilt,1.03,75,135000,0.205,0.213,
+Kathu Solar Energy Facility,Kathu,-27.612908,23.025886,75,1,operational,2014/08/15,Single Axis,1.08,81,181000,0.255,0.275,Modified to SAT
+Konkoonsies Solar,Konkoonsies,-28.889147,19.555275,9.65,1,operational,2014/03/20,Fixed Tilt,1.14,11,22000,0.228,0.26,
+Lesedi Power Company,Lesedi,-28.3154,23.3501,64,1,operational,2014/05/21,Fixed Tilt,1.17,75,150000,0.228,0.268,
+Letsatsi Power Company,Letsatsi,-28.9134,25.9199,64,1,operational,2014/05/21,Fixed Tilt,1.17,75,150000,0.228,0.268,
+Mulilo Renewable Energy Solar PV De Aar,Mulilo_De_ Aar,-30.6279,24.005453,9.65,1,operational,2014/07/19,Fixed Tilt,1.04,10,19272,0.22,0.228,
+Mulilo Renewable Energy Solar PV Prieska,Mulilo_Prieska,-29.967661,22.319683,19.9,1,operational,2014/10/01,Fixed Tilt,1.01,20,38544,0.22,0.221,
+RustMo1 Solar Farm,RustMo1,-25.737892,27.418314,6.76,1,operational,2013/11/15,Fixed Tilt,1.04,7,12500,0.204,0.211,
+SlimSun Swartland Solar Park,SlimSun,-33.35,18.529708,5,1,operational,2015/08/04,Fixed Tilt,1.2,5.98,10500,0.2,0.24,
+Solar Capital De Aar,Solar_Capital,-30.604753,24.095239,75,1,operational,2014/08/15,Fixed Tilt,1.13,85,,0,0,
+Soutpan Solar Park,Soutpan,-22.991667,29.251667,28,1,operational,2014/07/14,Fixed Tilt,1.11,31,61000,0.225,0.249,
+Touwsrivier Project,Touwsrivier,-33.410389,19.9276,36,1,operational,2014/12/05,Single Axis,1,,,#DIV/0!,0,Modified to SAT
+Witkop Solar Park,Witkop,-24.041667,29.361667,30,1,operational,2014/09/20,Single Axis,1.1,33,,0,0,Modified to SAT
+Aurora,Aurora,-32.641344,18.497289,9,2,operational,2014/12/01,Fixed Tilt,1.17,10.5,,0,0,
+Boshoff Solar Park,Boshoff,-28.4628,25.1891,60,2,operational,2014/10/25,Single Axis,1.1,66,132000,0.228,0.251,Modified to SAT
+Jasper Power Company,Jasper,-28.3133,23.3751,75,2,operational,2014/12/17,Fixed Tilt,1.28,96,180000,0.214,0.274,
+Linde,Linde,-30.9986,24.6506,36.8,2,operational,2013/06/30,Single Axis,1,,,#DIV/0!,0,Modified to SAT
+Project Dreunberg,Dreunberg,-30.8373,26.2055,69.9,2,operational,2014/12/31,Fixed Tilt,1.07,75,156000,0.237,0.255,
+Sishen Solar Facility,Sishen,-27.583611,22.932778,74,2,operational,2014/11/29,Single Axis,1.27,94.2,216000,0.262,0.333,Modified to SAT
+Solar Capital De Aar 3,Solar_Capital2,-30.604753,24.095239,75,2,operational,2014/08/15,Fixed Tilt,1,,,#DIV/0!,0,
+Upington Solar PV,Upington,-28.5493,21.1038,8.9,2,operational,2014/07/31,Fixed Tilt,1.12,10,,0,0,
+Vredendal,Vredendal,-31.634886,18.505356,8.8,2,operational,2014/08/01,Fixed Tilt,1.19,10.5,,0,0,
+Adams Solar PV 2,Adams,-27.378969,23.012989,75,3,operational,2017/01/23,Fixed Tilt,1.1,82.5,170000,0.235,0.259,
+Electra Capital (Pty) Ltd,Electra_Capital,-32.4148,18.7379,75,3,operational,2016/10/12,Fixed Tilt,1,,,#DIV/0!,0,
+Mulilo Prieska PV,Mulilo_Prieska2,-30.0375,22.317222,75,3,operational,2016/07/21,Fixed Tilt,1.15,86,180000,0.239,0.274,
+Mulilo Sonnedix Prieska PV,Mulilo_Prieska3,-30.024444,22.362778,75,3,operational,2016/07/22,Single Axis,1.15,86.23,180000,0.238,0.274,Modified to SAT
+Pulida Solar Park,Pulida,-29.086944,24.903333,75,3,operational,2017/01/23,Fixed Tilt,1.1,82.5,150000,0.208,0.228,
+Tom Burke Solar Park,Tom_Burke,-23.072778,27.989444,60,3,operational,2016/08/01,Fixed Tilt,1.1,66,122000,0.211,0.232,
+Aggeneys Solar,Aggeneys,-29.235794,18.897656,40,4,operational,2020/07/25,Single Axis,1.15,46,117000,0.29,0.334,
+Droogfontein Solar Power,Droogfontein2,-26.85400239,26.64211071,75,4,operational,2020/09/01,Single Axis,1.15,86,,0,0,
+Dyasons Klip 1,Dyasons_Klip1,-28.5493,21.1038,75,4,operational,2020/02/25,Single Axis,1.15,86,216500,0.287,0.33,
+Dyasons Klip 2,Dyasons_Klip2,-28.5707,21.0613,75,4,operational,2020/04/01,Single Axis,1.15,86,216500,0.287,0.33,
+Konkoonsies II Solar PV Facility,Konkoonsies2,-28.898811,19.557383,75,4,operational,2020/09/01,Single Axis,1.15,86,216500,0.287,0.33,
+Sirius Solar PV Project One,Sirius,-28.547361,21.09495,75,4,operational,2020/02/18,Single Axis,1.15,86,215000,0.285,0.327,
+Loeriesfontein Orange,Loeriesfontein,-30.91810861,19.44104346,75,4,operational,2023/12/31,Single Axis,1.15,,,#DIV/0!,0,Added placeholder COD
+Greefspan PV Power Plant2,Greefspan2,-29.3857,23.3172,55,4,operational,2021/04/09,Single Axis,1.15,63.2,188822,0.341,0.392,
+De Wildt,De_Wildt,-25.6332,27.9307,50,4,operational,2021/01/01,Single Axis,1.16,58,130000,0.256,0.297,
+Bokamoso,Bokamoso,-27.1583,26.4009,67.9,4,operational,2020/08/01,Single Axis,1.15,78,177660,0.26,0.299,
+Waterloo Solar Park,Waterloo,-27.0322,24.7931,75,4,operational,2020/11/26,Single Axis,1.15,86,180000,0.239,0.274,
+Zeerust,Zeerust,-25.5748,26.0718,75,4,operational,2021/01/01,Single Axis,1.15,86,180000,0.239,0.274,
+Kentani Solar Facility,Kentani,-28.6167,25.7167,75,5,failed,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Klipfontein Solar Facility,Klipfontein1,-28.6639,25.7501,75,5,failed,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Klipfontein 2 Solar Facility,Klipfontein2,-28.6769,25.7333,75,5,failed,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Leliehoek Solar Facility,Leliehoek,-28.6917,25.7001,75,5,failed,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Braklaagte Solar Facility,Braklaagte,-28.7472,25.7111,75,5,failed,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Sonoblomo Solar Facility,Sonoblomo,-28.7472,25.7361,75,5,failed,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Du Plessis Dam Solar PV 1,Du_Plessis,-30.6315,24.0398,75,5,construction,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Graspan Solar PV Project,Graspan,-29.3662,24.417,75,5,construction,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Grootspruit Solar PV Project,Grootspruit,-27.7375,26.775,75,5,construction,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Sannaspos Solar PV Project,Sannaspos,-29.194888,26.588306,75,5,construction,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Grootfontein PV 1,Grootfontein1,-32.9583,19.9319,75,5,construction,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Grootfontein PV 2,Grootfontein2,-32.9583,19.9444,75,5,construction,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Grootfontein PV 3,Grootfontein3,-32.9583,19.9528,75,5,construction,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Kutlwano Solar Power Plant,Kutlwano,-26.029683,26.112373,150,6,awarded,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Boitumelo Solar Power Plant,Boitumelo,-26.014162,26.105823,150,6,awarded,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Virginia Solar Park,Virginia,-28.212335,26.990032,240,6,construction,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Good Hope Solar Park,Good_Hope,-28.64721306,25.76110923,200,6,construction,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
+Doornhoek PV,Doornhoek,-26.434,26.2843,120,6,awarded,,Single Axis,1.15,138,325000,0.269,0.309,Placeholder dc_ac_ratio
+Ngonyama Solar PV,Ngonyama,-28.652538,25.653755,140,6,awarded,,Single Axis,1.15,,,#DIV/0!,0,Placeholder dc_ac_ratio
