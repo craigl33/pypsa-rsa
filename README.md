@@ -9,9 +9,10 @@ PyPSA-RSA has been designed to conduct capacity expansion planning studies at di
 Three different spatial resolutions are available in the model:
 
 - ``1-supply``: A single node for the entire South Africa.
-- ``11-supply``: 11 nodes based on the [Eskom Generation Connection Capacity Assessment of the 2024 Transmission Network (GCCA – 2024)](https://www.eskom.co.za/eskom-divisions/tx/gcca/) regions.
+- ``10-supply``: 10 nodes based on the [Eskom Generation Connection Capacity Assessment of the 2025 Transmission Network (GCCA – 2025)](https://www.eskom.co.za/eskom-divisions/tx/gcca/) regions.
 - ``27-supply``: 27 nodes based on Eskom 27 supply regions as per the original PyPSA-ZA model.
-
+- ``34-supply``: 34 nodes based on [Eskom Generation Connection Capacity Assessment of the 2025 Transmission Network (GCCA – 2025)](https://www.eskom.co.za/eskom-divisions/tx/gcca/) regions.
+  
 ![11-supply](docs/img/11-supply.png)
 
 ![27-supply](docs/img/27-supply.png)
