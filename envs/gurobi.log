@@ -1,0 +1,6 @@
+
+Gurobi 11.0.2 (linux64, gurobi_cl) logging started Thu May 23 13:02:55 2024
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/pklein/anaconda3/envs/pypsa-rsa/bin/../lib/gurobi.lic
+Restricted license - for non-production use only - expires 2025-11-24

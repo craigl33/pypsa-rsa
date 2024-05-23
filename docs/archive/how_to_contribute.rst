@@ -50,5 +50,5 @@ To contribute a test:
 
 No-Code
 ========
-Instead of contributing code there are alternatives to support the PyPSA-RSA goals.
+Instead of contributing code there are alternatives to support the PyPSA-ZA goals.
 You can fund projects, supervise students, support us with outreach activities or events.
