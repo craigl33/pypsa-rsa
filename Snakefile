@@ -22,7 +22,8 @@ try:
         sheet_name="scenario_definition",
         index_col=0,
         dtype={"run_scenario": "bool"},  # Explicitly set data type
-        engine="openpyxl"  # Use specific engine
+        engine="xlrd"  # Use specific engine
+        
     )
     
     # Convert index to string to avoid numpy array issues

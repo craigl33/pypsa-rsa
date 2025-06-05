@@ -124,7 +124,8 @@ from _helpers import (
     read_and_filter_generators,
     remove_leap_day,
     single_year_network_copy,
-    load_scenario_definition
+    load_scenario_definition,
+    find_right_index_col   
 )
 
 """
@@ -303,7 +304,17 @@ def attach_load(n, scenario_setup):
 
         """
 
-    load = pd.read_csv(snakemake.input.load,index_col=[0],parse_dates=True)
+    # Read load data with explicit datetime conversion
+    load = pd.read_csv(snakemake.input.load, index_col="Date Time Hour Beginning")
+
+    # Ensure index is properly converted to datetime
+    if not isinstance(load.index, pd.DatetimeIndex):
+        load.index = pd.to_datetime(load.index, dayfirst=True)
+    load.index.name == "datetime"
+
+    # Prepare load dataframe from raw Eskom data updated from the Eskom Data Portal  
+    load = load.rename(columns={"RSA Contracted Demand":"system_energy"})
+    load.loc[:,'Year'] = load.index.year
 
     annual_load = (
         pd.read_excel(
@@ -317,7 +328,7 @@ def attach_load(n, scenario_setup):
     ).loc[scenario_setup["load_trajectory"]]
 
     annual_load = annual_load.drop(["unit","Source"]).T*1e6
-    profile_load = normed(remove_leap_day(load.loc[str(snakemake.config["years"]["reference_load_year"]),"system_energy"]))
+    profile_load = normed(remove_leap_day(load[load.index.year == int(snakemake.config["years"]["reference_load_year"])]["system_energy"]))
     
     if n.multi_invest:
         load=pd.Series(0,index=n.snapshots)
@@ -390,7 +401,7 @@ def get_eaf_profiles(snapshots, type):
         out_df.index = range(1,54)
         std_dev = outages.loc[(_type, "std_dev_noise"),:]
 
-        eaf_hrly = out_df.loc[snapshots.week]
+        eaf_hrly = out_df.loc[snapshots.isocalendar().week]
         eaf_hrly.index = snapshots
 
         for col in eaf_hrly.columns:
@@ -659,7 +670,8 @@ def map_components_to_buses(component_df, regions, crs_config):
         crs=crs_config["geo_crs"]
     ).to_crs(crs_config["distance_crs"]))
     joined = gpd.sjoin(gps_gdf, regions_gdf, how="left", predicate="within")
-    component_df["bus"] = joined["index_right"].copy()
+    right_index_col = find_right_index_col(joined)
+    component_df["bus"] = joined[right_index_col].copy()
 
     if empty_bus := list(component_df[~component_df["bus"].notnull()].index):
         logger.warning(f"Dropping generators/storage units with no bus assignment {empty_bus}")
@@ -1261,6 +1273,45 @@ if __name__ == "__main__":
     add_missing_carriers(n)
 
     logging.info("Exporting network.")
+    # Comprehensive data type fix for NetCDF export
+    def ensure_consistent_dtypes(network):
+        """Ensure all time-series data has consistent data types for NetCDF export"""
+        # Fix generators time-series data
+        if hasattr(network, 'generators_t'):
+            for attr in ['p_max_pu', 'p_min_pu', 'p_nom_pu', 'marginal_cost']:
+                if hasattr(network.generators_t, attr):
+                    setattr(network.generators_t, attr, 
+                           getattr(network.generators_t, attr).astype(float))
+        
+        # Fix storage units time-series data
+        if hasattr(network, 'storage_units_t'):
+            for attr in ['p_max_pu', 'p_min_pu', 'inflow', 'state_of_charge_set']:
+                if hasattr(network.storage_units_t, attr):
+                    setattr(network.storage_units_t, attr, 
+                           getattr(network.storage_units_t, attr).astype(float))
+        
+        # Fix loads time-series data
+        if hasattr(network, 'loads_t'):
+            for attr in ['p_set']:
+                if hasattr(network.loads_t, attr):
+                    setattr(network.loads_t, attr, 
+                           getattr(network.loads_t, attr).astype(float))
+        
+        # Fix lines time-series data if any
+        if hasattr(network, 'lines_t'):
+            for attr in ['s_max_pu']:
+                if hasattr(network.lines_t, attr):
+                    setattr(network.lines_t, attr, 
+                           getattr(network.lines_t, attr).astype(float))
+        
+        # Fix links time-series data if any
+        if hasattr(network, 'links_t'):
+            for attr in ['p_max_pu', 'p_min_pu']:
+                if hasattr(network.links_t, attr):
+                    setattr(network.links_t, attr, 
+                           getattr(network.links_t, attr).astype(float))
+    
+    ensure_consistent_dtypes(n)
     if n.multi_invest:
         initial_ramp_rate_fix(n)
 

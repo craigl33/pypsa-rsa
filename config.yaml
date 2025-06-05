@@ -25,16 +25,16 @@ gis:
 
 # Specification of relevent years for the model
 years: 
-  reference_load_year: 2017  # should be a single year at present, could be extended in the future
+  reference_load_year: 2018  # should be a single year at present, could be extended in the future
   reference_weather_years: 
     # reference years used for solar PV and wind profiles - can be single or multiple years
     # if multiple years are specified these are applied sequencially to the simulation years
-    solar_pv: [2017, 2018, 2019]
-    solar_pv_low: [2017, 2018, 2019]
-    solar_pv_rooftop: [2017, 2018, 2019]
-    wind: [2017, 2018, 2019]
-    wind_low: [2017, 2018, 2019]
-    wind_offshore: [2017, 2018, 2019]
+    solar_pv: [2019, 2020, 2021]
+    solar_pv_low: [2019, 2020, 2021]
+    solar_pv_rooftop: [2019, 2020, 2021]
+    wind: [2019, 2020, 2021]
+    wind_low: [2019, 2020, 2021]
+    wind_offshore: [2019, 2020, 2021]
     
     # reference years from actual Eskom data published at https://www.eskom.co.za/dataportal/ 
     # can be single or multiple years if multiple years are specified these are applied 

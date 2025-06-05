@@ -721,7 +721,7 @@ def save_to_geojson(df, fn):
     if df.shape[0] > 0:
         df = df.reset_index()
         schema = {**gpd.io.file.infer_schema(df), "geometry": "Unknown"}
-        df.to_file(fn, driver="GeoJSON", schema=schema)
+        df.to_file(fn, driver="GeoJSON")
     else:
         # create empty file to avoid issues with snakemake
         with open(fn, "w") as fp:
@@ -816,7 +816,8 @@ def apply_default_attr(df, attrs):
     default_attrs = attrs[["default","type"]]
     default_list = default_attrs.loc[default_attrs.index.isin(params), "default"].dropna().index
 
-    conv_type = {'int': int, 'float': float, "static or series": float, "series": float}
+    conv_type = {'int': int, 'float': float, "static or series": float, "series": float, 'string': str}
+    
     for attr in default_list:
         default = default_attrs.loc[attr, "default"]
         df[attr] = df[attr].fillna(conv_type[default_attrs.loc[attr, "type"]](default))
@@ -1053,3 +1054,23 @@ def single_year_network_copy(
         setattr(network, attr, getattr(n, attr))
 
     return network
+
+def find_right_index_col(df):
+    """ 
+    Function to find the right index column name that comes from newer versions of GeoPandas
+    
+    """
+
+    if 'index_right' in df.columns:
+        right_index_col = 'index_right'
+    else:
+        # Find the right index column (look for index columns that aren't index_left)
+        index_cols = [col for col in df.columns if col.startswith('index_')]
+        right_index_cols = [col for col in index_cols if col != 'index_left']
+        if right_index_cols:
+            right_index_col = right_index_cols[0]
+        else:
+            # Fallback: use the last column or a reasonable guess
+            right_index_col = df.columns[-1]
+
+    return right_index_col

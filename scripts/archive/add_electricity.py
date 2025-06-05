@@ -106,6 +106,7 @@ from _helpers import (
     remove_leap_day,
     add_row_multi_index_df,
     drop_non_pypsa_attrs,
+    find_right_index_col
 )
 
 from collections import defaultdict, Counter
@@ -527,8 +528,9 @@ def map_components_to_buses(component_df, regions, crs_config):
         index=component_df.index, 
         crs=crs_config["geo_crs"]
     ).to_crs(crs_config["distance_crs"]))
-    joined = gpd.sjoin(gps_gdf, regions_gdf, how="left", op="within")
-    component_df["bus"] = joined["index_right"].copy()
+    joined = gpd.sjoin(gps_gdf, regions_gdf, how="left", predicate="within")
+    right_index_col = find_right_index_col(joined)
+    component_df["bus"] = joined[right_index_col].copy()
 
     if empty_bus := list(component_df[~component_df["bus"].notnull()].index):
         logger.warning(f"Dropping generators/storage units with no bus assignment {empty_bus}")
