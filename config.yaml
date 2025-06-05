@@ -5,7 +5,8 @@ logging:
   format: "%(levelname)s:%(name)s:%(message)s"
 
 scenarios:
-  folder: ME IRP 2024
+  path: "~/showcase/pypsa-rsa/scenarios"
+  folder: "ME IRP 2024"
   setup: "scenarios_to_run.xlsx"
 
 # # General inputs
@@ -15,11 +16,11 @@ scenarios:
 #     corridors: Power_corridors
 
 gis:
-  path: "/media/pklein/1TB_SSD/Meridian Dropbox/ME Projects/03 R E S O U R C E S/Modelling data/GIS data"
+  path: "~/showcase/pypsa-rsa/gis"
   # definition of the Coordinate Reference Systems
   crs:
     geo_crs: EPSG:4326  # general geographic projection, not used for metric measures. "EPSG:4326" is the standard used by OSM and google maps
-    distance_crs: EPSG:2049 # projection for distance measurements only. Possible recommended values are "EPSG:3857" (used by OSM and Google Maps)
+    distance_crs: EPSG:3857 # projection for distance measurements only. Possible recommended values are "EPSG:3857" (used by OSM and Google Maps)
     area_crs: ESRI:54009  # projection for area measurements only. Possible recommended values are Global Mollweide "ESRI:54009"
 
 # Specification of relevent years for the model
@@ -172,13 +173,38 @@ tsam_clustering:
   nprocesses: 10
   solver: "cbc" #need to use open source solver here due to parallel processing of years
  
+ 
 solving:
+
   tmpdir: /tmp
   options:
     clip_p_max_pu: 1.e-2
     load_shedding: true
   solver:
-    name: xpress
+    name: highs
+    options: highs-default
     lpflags: 4
     crossover: 0
     bargapstop: 1.e-6
+
+
+  solver_options:
+    highs-default:
+      # refer to https://ergo-code.github.io/HiGHS/dev/options/definitions/
+      threads: 1
+      solver: "ipm"
+      run_crossover: "off"
+      small_matrix_value: 1e-6
+      large_matrix_value: 1e9
+      primal_feasibility_tolerance: 1e-5
+      dual_feasibility_tolerance: 1e-5
+      ipm_optimality_tolerance: 1e-4
+      parallel: "on"
+      random_seed: 123
+    highs-simplex:
+      solver: "simplex"
+      parallel: "on"
+      primal_feasibility_tolerance: 1e-5
+      dual_feasibility_tolerance: 1e-5
+      random_seed: 123
+

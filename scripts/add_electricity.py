@@ -658,7 +658,7 @@ def map_components_to_buses(component_df, regions, crs_config):
         index=component_df.index, 
         crs=crs_config["geo_crs"]
     ).to_crs(crs_config["distance_crs"]))
-    joined = gpd.sjoin(gps_gdf, regions_gdf, how="left", op="within")
+    joined = gpd.sjoin(gps_gdf, regions_gdf, how="left", predicate="within")
     component_df["bus"] = joined["index_right"].copy()
 
     if empty_bus := list(component_df[~component_df["bus"].notnull()].index):
