@@ -59,9 +59,8 @@ import numpy as np
 import pandas as pd
 import pypsa
 
-from pypsa.optimization import get_var, write_objective, define_constraints, linexpr
+# Updated imports for PyPSA 0.34.1 - using linopy-based optimization
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense, expand_series
-from pypsa.optimization.common import reindex
 
 from _helpers import configure_logging, remove_leap_day, normalize_and_rename_df, assign_segmented_df_to_network, load_scenario_definition
 from add_electricity import load_extendable_parameters#, update_transmission_costs
@@ -363,18 +362,41 @@ def calc_cumulative_new_capacity(n):
     return new_capacity
 
 def solve_network(n, sns):
+    """
+    Solve network using the new Linopy-based optimization approach.
     
-    n.optimize.create_model(snapshots = sns, multi_investment_periods = n.multi_invest)
-    # Custom constraints
-    set_operational_limits(n, sns, scenario_setup)
-    ccgt_steam_constraints(n, sns, snakemake)
-    reserve_margin_constraints(n, sns, scenario_setup, snakemake)
+    This follows the PyPSA-EUR v2025.04.0 pattern:
+    1. Create the optimization model using the new API
+    2. Add custom constraints via extra_functionality 
+    3. Solve the model
+    """
     
-    param = load_extendable_parameters(n, scenario_setup, snakemake)
-    annual_co2_constraints(n, sns, param, scenario_setup)
+    def extra_functionality(n, snapshots):
+        """
+        Add custom constraints to the model.
+        This function is called after model creation but before solving.
+        """
+        # Custom constraints using the new Linopy-based approach
+        set_operational_limits(n, snapshots, scenario_setup)
+        ccgt_steam_constraints(n, snapshots, snakemake)
+        reserve_margin_constraints(n, snapshots, scenario_setup, snakemake)
+        
+        param = load_extendable_parameters(n, scenario_setup, snakemake)
+        annual_co2_constraints(n, snapshots, param, scenario_setup)
+    
+    # Get solver configuration
     solver_name = snakemake.config["solving"]["solver"].pop("name")
     solver_options = snakemake.config["solving"]["solver"].copy()
-    n.optimize.solve_model(solver_name=solver_name, solver_options=solver_options)
+    
+    # Solve using the new optimize method with extra_functionality
+    # This is the PyPSA 0.34.1 way following PyPSA-EUR patterns
+    n.optimize(
+        snapshots=sns,
+        multi_investment_periods=n.multi_invest,
+        solver_name=solver_name,
+        solver_options=solver_options,
+        extra_functionality=extra_functionality
+    )
 
 if __name__ == "__main__":
     if 'snakemake' not in globals():
@@ -421,4 +443,3 @@ if __name__ == "__main__":
     n.statistics().to_csv(snakemake.output[1])
     calc_emissions(n, scenario_setup).to_csv(snakemake.output[2])
     #calc_cumulative_new_capacity(n).to_csv(snakemake.output[3])
-

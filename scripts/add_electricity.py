@@ -653,32 +653,72 @@ def load_fixed_components(carriers, start_year, config, tech_flag):
 def map_components_to_buses(component_df, regions, crs_config):
     """
     Associate every generator/storage_unit with the bus of the region based on GPS coords.
-
-    Args:
-        component_df: A DataFrame containing generator/storage_unit data.
-        regions: The file path to the regions shapefile.
-        crs_config: A dictionary containing coordinate reference system configurations.
-
-    Returns:
-        A DataFrame with the generators associated with their respective bus.
     """
-
-    regions_gdf = gpd.read_file(regions).to_crs(snakemake.config["gis"]["crs"]["distance_crs"]).set_index("name")
+    regions_gdf = gpd.read_file(regions).to_crs(snakemake.config["gis"]["crs"]["distance_crs"])
+    
+    # Ensure regions has the correct index
+    if "name" not in regions_gdf.columns:
+        # Try different possible name columns
+        possible_name_cols = ['name', 'Name', 'LocalArea', 'SupplyArea', 'region_name']
+        name_col = None
+        for col in possible_name_cols:
+            if col in regions_gdf.columns:
+                name_col = col
+                break
+        
+        if name_col is None:
+            logging.error(f"No valid name column found in regions file. Available columns: {regions_gdf.columns.tolist()}")
+            raise ValueError("Cannot find name column in regions file")
+        
+        regions_gdf = regions_gdf.rename(columns={name_col: 'name'})
+    
+    regions_gdf = regions_gdf.set_index("name")
+    
+    # Create GeoDataFrame for components
     gps_gdf = gpd.GeoDataFrame(
         geometry=gpd.GeoSeries([Point(o.x, o.y) for o in component_df[["x", "y"]].itertuples()],
-        index=component_df.index, 
+        index=component_df.index,
         crs=crs_config["geo_crs"]
-    ).to_crs(crs_config["distance_crs"]))
+    )).to_crs(snakemake.config["gis"]["crs"]["distance_crs"])
+    
+    # Perform spatial join
+    print(regions_gdf.geometry)
     joined = gpd.sjoin(gps_gdf, regions_gdf, how="left", predicate="within")
-    right_index_col = find_right_index_col(joined)
-    component_df["bus"] = joined[right_index_col].copy()
+    component_df["bus"] = joined["name"].copy()
 
-    if empty_bus := list(component_df[~component_df["bus"].notnull()].index):
-        logger.warning(f"Dropping generators/storage units with no bus assignment {empty_bus}")
+
+    # Log components without bus assignment
+    missing_bus = component_df[component_df["bus"].isnull()]
+    if len(missing_bus) > 0:
+        logging.warning(f"Found {len(missing_bus)} components without bus assignment:")
+        for idx in missing_bus.index:
+            logging.warning(f"  - {idx}: coords=({missing_bus.loc[idx, 'x']}, {missing_bus.loc[idx, 'y']})")
+        
+        # Try to assign to nearest bus for missing components
+        logging.info("Attempting to assign missing components to nearest bus...")
+        
+        # Get centroids of regions for distance calculation
+        region_centroids = regions_gdf.geometry.centroid
+        
+        for idx in missing_bus.index:
+            component_point = Point(missing_bus.loc[idx, 'x'], missing_bus.loc[idx, 'y'])
+            
+            # Calculate distances to all region centroids
+            distances = region_centroids.distance(component_point)
+            nearest_bus = distances.idxmin()
+            
+            logging.info(f"Assigning {idx} to nearest bus: {nearest_bus}")
+            component_df.loc[idx, "bus"] = nearest_bus
+
+    # Final check - remove any components still without buses
+    still_missing = component_df[component_df["bus"].isnull()]
+    if len(still_missing) > 0:
+        logging.error(f"Still have {len(still_missing)} components without bus assignment. Dropping them:")
+        for idx in still_missing.index:
+            logging.error(f"  - Dropping {idx}")
         component_df = component_df[component_df["bus"].notnull()]
 
     return component_df
-
 
 def group_components(component_df, attrs):
     """
@@ -737,6 +777,22 @@ def attach_fixed_generators(n, carriers):
     # load generators from model file
     gens = load_fixed_components(carriers, start_year, snakemake.config["electricity"], "Generator")
     gens = map_components_to_buses(gens, snakemake.input.supply_regions, snakemake.config["gis"]["crs"])
+    
+    # New code to add bus validation
+    # Validate that all assigned buses exist in the network
+    valid_buses = set(n.buses.index)
+    invalid_bus_gens = gens[~gens["bus"].isin(valid_buses)]
+    
+    if len(invalid_bus_gens) > 0:
+        logging.error(f"Found generators assigned to non-existent buses:")
+        for idx, row in invalid_bus_gens.iterrows():
+            logging.error(f"  - {idx}: assigned to bus '{row['bus']}' which doesn't exist")
+        
+        # Remove generators with invalid bus assignments
+        gens = gens[gens["bus"].isin(valid_buses)]
+        logging.info(f"Removed {len(invalid_bus_gens)} generators with invalid bus assignments")
+    
+    
     pu_profiles = init_pu_profiles(gens, snapshots)
 
     unique_entries = set()
@@ -1059,6 +1115,20 @@ def attach_fixed_storage(n, carriers):
     storage = load_fixed_components(carriers, start_year, snakemake.config["electricity"], "StorageUnit")
     storage = map_components_to_buses(storage, snakemake.input.supply_regions, snakemake.config["gis"]["crs"])
 
+    # New validation code for buses
+    # Validate that all assigned buses exist in the network
+    valid_buses = set(n.buses.index)
+    invalid_bus_storage = storage[~storage["bus"].isin(valid_buses)]
+    
+    if len(invalid_bus_storage) > 0:
+        logging.error(f"Found storage units assigned to non-existent buses:")
+        for idx, row in invalid_bus_storage.iterrows():
+            logging.error(f"  - {idx}: assigned to bus '{row['bus']}' which doesn't exist")
+        
+        # Remove storage units with invalid bus assignments
+        storage = storage[storage["bus"].isin(valid_buses)]
+        logging.info(f"Removed {len(invalid_bus_storage)} storage units with invalid bus assignments")
+
     storage["efficiency_store"] = storage["efficiency"]**0.5
     storage["efficiency_dispatch"] = storage["efficiency"]**0.5
     storage["cyclic_state_of_charge"], storage["p_nom_extendable"] = True, False
@@ -1271,6 +1341,54 @@ if __name__ == "__main__":
         add_load_shedding(n, ls_cost) 
 
     add_missing_carriers(n)
+
+    
+    # Debugging code
+    logging.info(f"Loading base network {snakemake.input.base_network}")
+    n = pypsa.Network(snakemake.input.base_network)
+    
+    # Debug: Print network bus information
+    logging.info(f"Network has {len(n.buses)} buses:")
+    for bus in n.buses.index:
+        logging.info(f"  - Bus: {bus}")
+    
+    if len(n.buses) == 0:
+        logging.error("Network has no buses! Check base_network.py")
+        raise ValueError("Base network contains no buses")
+
+    logging.info("Attaching load")
+    attach_load(n, scenario_setup)
+
+    logging.info("Attaching fixed generators")
+    attach_fixed_generators(n, carriers)
+    
+
+    # Debug: Check generators after attachment
+    logging.info(f"Network now has {len(n.generators)} generators")
+    gen_buses = n.generators["bus"].unique()
+    logging.info(f"Generators are assigned to buses: {gen_buses}")
+    
+    # Check for missing buses
+    missing_buses = set(gen_buses) - set(n.buses.index)
+    if missing_buses:
+        logging.error(f"Generators reference non-existent buses: {missing_buses}")
+
+    logging.info("Attaching extendable generators")
+    attach_extendable_generators(n, carriers)
+
+    logging.info("Attaching fixed storage")
+    attach_fixed_storage(n, carriers)
+    
+    # Debug: Check storage after attachment
+    if len(n.storage_units) > 0:
+        logging.info(f"Network now has {len(n.storage_units)} storage units")
+        storage_buses = n.storage_units["bus"].unique()
+        logging.info(f"Storage units are assigned to buses: {storage_buses}")
+        
+        # Check for missing buses
+        missing_storage_buses = set(storage_buses) - set(n.buses.index)
+        if missing_storage_buses:
+            logging.error(f"Storage units reference non-existent buses: {missing_storage_buses}")
 
     logging.info("Exporting network.")
     # Comprehensive data type fix for NetCDF export

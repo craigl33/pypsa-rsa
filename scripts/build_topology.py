@@ -65,6 +65,7 @@ def load_region_data(model_regions):
         layer=model_regions,
     ).to_crs(snakemake.config["gis"]["crs"]["distance_crs"])
 
+    # Set index to name of bus
     possible_index_cols = ['name', 'Name', 'LocalArea', 'SupplyArea']
 
     index_column = [col for col in possible_index_cols if col in regions.columns]
@@ -76,24 +77,11 @@ def load_region_data(model_regions):
     ).to_crs(snakemake.config["gis"]["crs"]["distance_crs"])
 
     joined = gpd.sjoin(gdp_pop, regions, how="inner", predicate="within")
-    
-    # Handle different geopandas versions for the right index column
-    if 'index_right' in joined.columns:
-        right_index_col = 'index_right'
-    else:
-        # Find the right index column (look for index columns that aren't index_left)
-        index_cols = [col for col in joined.columns if col.startswith('index_')]
-        right_index_cols = [col for col in index_cols if col != 'index_left']
-        if right_index_cols:
-            right_index_col = right_index_cols[0]
-        else:
-            # Fallback: use the last column or a reasonable guess
-            right_index_col = joined.columns[-1]
-    
+
     gva_cols = ["SIC1_2016", "SIC2_2016", "SIC3_2016", "SIC4_2016", "SIC6_2016", "SIC7_2016", "SIC8_2016", "SIC9_2016"]
     pop_col = ["POP_2016"]
     for col in gva_cols + pop_col:
-        regions[col] = joined.groupby(joined[right_index_col]).agg({col:"sum"})[col]
+        regions[col] = joined.groupby(joined["name"]).agg({col:"sum"})[col]
     
     regions["GVA_2016"] = regions[gva_cols].sum(axis=1)
     if len(regions)>1:
@@ -146,7 +134,7 @@ def load_line_data(line_config):
                 continue
             non_zero_years = row.iloc[5:]
             non_zero_years = non_zero_years[non_zero_years != 0]
-            for year in non_zero_years.index:
+            for year in non_zero_years.infdex:
                 for _ in range(int(non_zero_years[year])):                                   
                     user_lines.loc[usr_cnt,'bus0'] = row['bus0']
                     user_lines.loc[usr_cnt,'bus1'] = row['bus1']
@@ -251,8 +239,7 @@ def calc_inter_region_lines(lines, line_config):
 def extend_topology(lines, regions, centroids):
     # get a list of lines between all adjacent regions
     adj_lines = gpd.sjoin(regions, regions, predicate='touches')
-    right_index_col = find_right_index_col(adj_lines)
-    adj_lines = adj_lines[right_index_col].reset_index()
+    adj_lines = adj_lines["index_right"].reset_index()
 
     adj_lines.columns = ['bus0', 'bus1']
     adj_lines['bus0'], adj_lines['bus1'] = np.sort(adj_lines[['bus0', 'bus1']].values, axis=1).T # sort bus0 and bus1 alphabetically
