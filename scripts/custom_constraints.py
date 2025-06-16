@@ -471,3 +471,68 @@ def annual_co2_constraints(n, sns, param, scenario_setup):
     except (KeyError, ValueError) as e:
         logging.warning(f"Error creating CO2 constraints: {e}")
         return
+    
+def add_national_capacity_constraints(n, sns, scenario_setup):
+    """
+    Add custom constraints that enforce national capacity limits
+    across all regional variants of each technology.
+    
+    This function should be called during the optimization setup
+    (e.g., in the extra_functionality of prepare_and_solve_network.py).
+    """
+    
+    if not hasattr(n, 'model') or n.model is None:
+        logging.warning("Network model not created yet. Skipping national capacity constraints.")
+        return
+    
+    # Add constraints for both generators and storage units
+    for component_type in ["Generator", "StorageUnit"]:
+        add_national_constraints_for_component(n, sns, component_type, scenario_setup)
+
+
+def add_national_constraints_for_component(n, sns, component_type, scenario_setup):
+    """
+    Add national constraints for a specific component type.
+    """
+    
+    constraint_key = f"national_constraints_{component_type}"
+    
+    # Get stored national constraints
+    if hasattr(scenario_setup, '_national_constraints') and constraint_key in scenario_setup._national_constraints:
+        national_constraints = scenario_setup._national_constraints[constraint_key]
+    elif constraint_key in globals():
+        national_constraints = globals()[constraint_key]
+    else:
+        logging.warning(f"No national constraints found for {component_type}")
+        return
+    
+    # Get component dataframe
+    if component_type == "Generator":
+        components = n.generators
+        p_nom_var_name = "Generator-p_nom"
+    elif component_type == "StorageUnit":
+        components = n.storage_units
+        p_nom_var_name = "StorageUnit-p_nom"
+    else:
+        return
+    
+    # Check if the variable exists in the model
+    if p_nom_var_name not in n.model.variables:
+        logging.warning(f"{p_nom_var_name} variable not found in model")
+        return
+    
+    p_nom_var = n.model.variables[p_nom_var_name]
+    
+    # Group regional technologies by base carrier
+    carrier_groups = group_regional_technologies_by_base_carrier(components)
+    
+    # Add constraints for each constraint type and carrier
+    for constraint_type in national_constraints.index.get_level_values(0).unique():
+        constraint_data = national_constraints.xs(constraint_type, level=0)
+        
+        for carrier in constraint_data.index:
+            if carrier in carrier_groups:
+                add_carrier_national_constraint(
+                    n, p_nom_var, carrier_groups[carrier], 
+                    constraint_data.loc[carrier], constraint_type, carrier, component_type
+                )
