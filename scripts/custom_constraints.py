@@ -2,8 +2,10 @@ import logging
 import pandas as pd
 import pypsa
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense, expand_series, get_activity_mask
-from pypsa.optimization.common import reindex
 import os
+import numpy as np
+
+
 
 from _helpers import get_investment_periods
 # from add_electricity import load_costs, update_transmission_costs
@@ -23,6 +25,10 @@ logger = logging.getLogger(__name__)
 """
 
 def calc_max_gen_potential(n, sns, gens, incl_pu, weightings, active, cf_limit, extendable=False):
+    """
+    Calculate maximum generation potential for capacity factor constraints.
+    Updated for PyPSA 0.34.1 Linopy approach.
+    """
     suffix = "" if extendable == False else "-ext"
     p_max_pu = get_as_dense(n, 'Generator', "p_max_pu", sns)[gens] if incl_pu else pd.DataFrame(1, index=sns, columns=gens)
     p_max_pu.columns.name = f'Generator{suffix}'
@@ -36,9 +42,27 @@ def calc_max_gen_potential(n, sns, gens, incl_pu, weightings, active, cf_limit, 
     
     if not extendable:
         return cf_limit_h[gens] * active[gens] * p_max_pu * weightings[gens] * n.generators.loc[gens, "p_nom"]
-    p_nom = n.model.variables["Generator-p_nom"].sel({f"Generator{suffix}": gens})
+    
+    # Updated for Linopy: Access capacity variables through the model
+    p_nom_var_name = f"Generator-p_nom" if not extendable else f"Generator-p_nom"
+    if p_nom_var_name not in n.model.variables:
+        logging.warning(f"Variable {p_nom_var_name} not found in model variables")
+        return 0
+    
+    p_nom = n.model.variables[p_nom_var_name]
+    if extendable:
+        # Select only extendable generators
+        try:
+            p_nom = p_nom.sel({f"Generator-ext": gens})
+        except KeyError:
+            # Fallback if dimension naming is different
+            p_nom = p_nom.sel(Generator=gens) if "Generator" in p_nom.dims else p_nom
+    
     potential = xr.DataArray(cf_limit_h[gens] * active[gens] * p_max_pu * weightings[gens])
-    potential = potential.rename({"Generator":"Generator-ext"}) if "Generator" in potential.dims else potential
+    
+    # Ensure dimension alignment for Linopy
+    if extendable and "Generator" in potential.dims:
+        potential = potential.rename({"Generator": "Generator-ext"})
     
     return (potential * p_nom).sum(f'Generator{suffix}')
 
@@ -47,13 +71,20 @@ def group_and_sum(data, groupby_func):
     return grouped_data.sum(axis=1) if len(grouped_data) > 1 else grouped_data
     
 def apply_operational_constraints(n, sns, **kwargs):
+    """
+    Apply operational constraints using the new Linopy approach.
+    Updated for PyPSA 0.34.1.
+    """
+    # Check if model is created
+    if not hasattr(n, 'model') or n.model is None:
+        logging.warning("Network model not created yet. Skipping operational constraints.")
+        return
+    
     energy_unit_conversion = {"GW":1e3, "GJ": 1/3.6, "TJ": 1000/3.6, "PJ": 1e6/3.6, "GWh": 1e3, "TWh": 1e6}
     apply_to = kwargs["apply_to"]
 
     carrier = [c.strip() for c in kwargs["carrier"].split("+")]
 
-    #if carrier in ["gas", "diesel"]:
-    #    carrier = n.carriers[n.carriers.index.str.contains(carrier)].index
     bus = kwargs["bus"]
     period = kwargs["period"]
 
@@ -86,14 +117,38 @@ def apply_operational_constraints(n, sns, **kwargs):
     if len(filtered_gens) == 0:
         return
 
+    # Check if Generator-p variable exists
+    if "Generator-p" not in n.model.variables:
+        logging.warning("Generator-p variable not found in model. Skipping operational constraints.")
+        return
+
     efficiency = get_as_dense(n, "Generator", "efficiency", inds=filtered_gens.index) if kwargs["type"] == "primary_energy" else pd.DataFrame(1, index=n.snapshots, columns = filtered_gens.index)
     weightings = (1/efficiency).multiply(n.snapshot_weightings.generators, axis=0)
 
     # if only extendable generators only select snapshots where generators are active
     min_year = n.generators.loc[filtered_gens.index, "build_year"].min()
     sns_active = sns[sns.get_level_values(0) >= min_year] if n.multi_invest else sns[sns.year >= min_year]
-    act_gen = (n.model.variables['Generator-p'].loc[sns_active, filtered_gens.index] * weightings.loc[sns_active]).sel(Generator=filtered_gens.index).sum('Generator')
-    act_gen_pow = (n.model.variables['Generator-p'].loc[sns_active, filtered_gens.index]).sel(Generator=filtered_gens.index).sum('Generator')
+    
+    # Access generator dispatch variables using Linopy approach
+    gen_p_var = n.model.variables['Generator-p']
+    
+    # Select relevant generators and snapshots
+    try:
+        gen_p_filtered = gen_p_var.sel(Generator=filtered_gens.index, snapshot=sns_active)
+        
+        # Apply weightings and sum over generators
+        weightings_aligned = xr.DataArray(
+            weightings.loc[sns_active, filtered_gens.index],
+            dims=['snapshot', 'Generator'],
+            coords={'snapshot': sns_active, 'Generator': filtered_gens.index}
+        )
+        
+        act_gen = (gen_p_filtered * weightings_aligned).sum('Generator')
+        act_gen_pow = gen_p_filtered.sum('Generator')
+        
+    except (KeyError, ValueError) as e:
+        logging.warning(f"Error accessing generator variables: {e}. Skipping constraint.")
+        return
 
     timestep = "timestep" if n.multi_invest else "snapshot"
     groupby_dict = {
@@ -121,28 +176,16 @@ def apply_operational_constraints(n, sns, **kwargs):
                 else:
                     lhs = act_gen
                     rhs = en_pow_limit[y]
+                    
                 lhs = lhs.sel(snapshot=year_sns)
                 lhs_p = lhs.sum() if period == "year" else lhs.groupby(groupby).sum()
 
-                # if period == "month":
-                #     if isinstance(rhs, int) or isinstance(rhs, float):
-                #         rhs_p = rhs
-                #     else:
-                #         rhs_p = group_and_sum(rhs, lambda x: x.index.month)
-                #         rhs_p.index.name = period
-                # elif period == "week":
-                #     if isinstance(rhs, int) or isinstance(rhs, float):
-                #         rhs_p = rhs
-                #     else:
-                #         rhs_p = group_and_sum(rhs, lambda x: x.index.isocalendar().week)
-                #         rhs_p.index.name = period
-                # else:  # period == "year"
-                #     rhs_p = rhs if isinstance(rhs, int) or isinstance(rhs, float) else rhs.sum().sum()
                 rhs_p = rhs if isinstance(rhs, int) else rhs.sum().sum()
+                
+                # Add constraint using Linopy method
                 n.model.add_constraints(lhs_p, sense, rhs_p, name=f'{limit}-{kwargs["carrier"]}-{period}-{kwargs["apply_to"][:3]}-{y}')
 
     else:
-
         lhs = (act_gen - max_gen_ext).sel(snapshot = sns_active) if type_ == "capacity_factor" else act_gen_pow.sel(snapshot = sns_active)
         if kwargs["type"] == "output_energy":
             logging.warning("Energy limits are not yet implemented for hourly operational limits.")
@@ -164,6 +207,13 @@ def apply_operational_constraints(n, sns, **kwargs):
         n.model.add_constraints(lhs, sense, rhs, name = f'{limit}-{kwargs["carrier"]}-hour-{kwargs["apply_to"][:3]}')
 
 def set_operational_limits(n, sns, scenario_setup):
+    """
+    Set operational limits from Excel configuration.
+    Updated for PyPSA 0.34.1.
+    """
+    if not hasattr(n, 'model') or n.model is None:
+        logging.warning("Network model not created yet. Skipping operational limits.")
+        return
 
     op_limits = pd.read_excel(
         os.path.join(scenario_setup["sub_path"], "operational_constraints.xlsx"),
@@ -189,6 +239,20 @@ def set_operational_limits(n, sns, scenario_setup):
 
 
 def ccgt_steam_constraints(n, sns, snakemake):
+    """
+    CCGT steam constraints using Linopy approach.
+    Updated for PyPSA 0.34.1.
+    """
+    # Check if model is created
+    if not hasattr(n, 'model') or n.model is None:
+        logging.warning("Network model not created yet. Skipping CCGT steam constraints.")
+        return
+    
+    # Check if Generator-p variable exists
+    if "Generator-p" not in n.model.variables:
+        logging.warning("Generator-p variable not found in model. Skipping CCGT steam constraints.")
+        return
+    
     # At each bus HRSG power is limited by what OCGT power production
     config = snakemake.config["electricity"]["conventional_generators"]
     p_nom_ratio = config["ccgt_st_to_gt_ratio"]
@@ -197,14 +261,29 @@ def ccgt_steam_constraints(n, sns, snakemake):
     # remove ocgt_diesel_emg from ocgt_carriers
     ocgt_carriers = [c for c in ocgt_carriers if c in config["allowable_ocgt_st_carriers"]]
 
-    #ocgt_carriers = ["ocgt_gas", "ocgt_diesel"]
+    gen_p_var = n.model.variables['Generator-p']
+    
     for bus in n.buses.index:
-        ocgt_gens = n.generators.query("bus == bus & carrier in @ocgt_carriers").index
-        ccgt_hrsg = n.generators.query("bus == bus & carrier == 'ccgt_steam'").index
+        ocgt_gens = n.generators.query("bus == @bus & carrier in @ocgt_carriers").index
+        ccgt_hrsg = n.generators.query("bus == @bus & carrier == 'ccgt_steam'").index
         
-        lhs = (n.model.variables['Generator-p'].loc[sns, ccgt_hrsg] - p_nom_ratio*n.model.variables['Generator-p'].loc[sns, ocgt_gens]).sum("Generator")
-        rhs = 0
-        n.model.add_constraints(lhs, "<=", rhs, name = f'ccgt_steam_limit-{bus}')
+        if len(ocgt_gens) == 0 or len(ccgt_hrsg) == 0:
+            continue
+        
+        try:
+            # Access generator variables for specific generators and snapshots
+            ccgt_p = gen_p_var.sel(Generator=ccgt_hrsg, snapshot=sns)
+            ocgt_p = gen_p_var.sel(Generator=ocgt_gens, snapshot=sns)
+            
+            # Create constraint: CCGT steam <= ratio * OCGT gas
+            lhs = (ccgt_p.sum("Generator") - p_nom_ratio * ocgt_p.sum("Generator"))
+            rhs = 0
+            
+            n.model.add_constraints(lhs, "<=", rhs, name=f'ccgt_steam_limit-{bus}')
+            
+        except (KeyError, ValueError) as e:
+            logging.warning(f"Error creating CCGT steam constraint for bus {bus}: {e}")
+            continue
 
 """
 ********************************************************************************
@@ -212,13 +291,23 @@ def ccgt_steam_constraints(n, sns, snakemake):
 ********************************************************************************
 """
 def check_active(n, c, y, list):
+    """Helper function to check active assets for multi-investment periods."""
     active = n.df(c).index[n.get_active_assets(c, y)] if n.multi_invest else list
     return list.intersection(active)
 
 def reserve_margin_constraints(n, sns, scenario_setup, snakemake):
+    """
+    Reserve margin constraints using Linopy approach.
+    Updated for PyPSA 0.34.1.
+    """
+    # Check if model is created
+    if not hasattr(n, 'model') or n.model is None:
+        logging.warning("Network model not created yet. Skipping reserve margin constraints.")
+        return
+    
     ###################################################################################
     # Reserve margin above maximum peak demand in each year
-    # The sum of res_margin_carriers multiplied by their assumed constribution factors 
+    # The sum of res_margin_carriers multiplied by their assumed contribution factors 
     # must be higher than the maximum peak demand in each year by the reserve_margin value
 
     res_margin = pd.read_excel(
@@ -236,17 +325,14 @@ def reserve_margin_constraints(n, sns, scenario_setup, snakemake):
 
     peak = n.loads_t.p_set.loc[sns].sum(axis=1).groupby(sns.get_level_values(0)).max() if n.multi_invest else n.loads_t.p_set.loc[sns].sum(axis=1).max()
     peak = peak if n.multi_invest else pd.Series(peak, index = sns.year.unique())
-    #capacity_credit = snakemake.config["electricity"]["reserves"]["capacity_credit"]
 
     for y in peak.index:
         if res_mrgn_active[y]:    
-
-            fix_i = n.generators.query("not p_nom_extendable & carrier in @capacity_credit").index
-            ext_i = n.generators.query("p_nom_extendable & carrier in @capacity_credit").index
-    
             fix_cap = 0
             lhs = 0
+            
             for c in ["Generator", "StorageUnit"]:
+                # Fixed capacity contribution
                 fix_i = n.df(c).query("not p_nom_extendable & carrier in @capacity_credit.index").index
                 fix_i = check_active(n, c, y, fix_i)
 
@@ -255,49 +341,133 @@ def reserve_margin_constraints(n, sns, scenario_setup, snakemake):
                     * n.df(c).loc[fix_i, "p_nom"]
                 ).sum()
             
+                # Extendable capacity contribution
                 ext_i = n.df(c).query("p_nom_extendable & carrier in @capacity_credit.index").index
                 ext_i = check_active(n, c, y, ext_i)
-    
-                lhs += (
-                    n.model.variables[f"{c}-p_nom"].sel({f"{c}-ext":ext_i}) 
-                    *xr.DataArray(n.df(c).loc[ext_i, "carrier"].map(capacity_credit)).rename({f"{c}":f"{c}-ext"})
-                ).sum(f"{c}-ext")
+                
+                if len(ext_i) > 0:
+                    # Access capacity variables using Linopy approach
+                    var_name = f"{c}-p_nom"
+                    if var_name in n.model.variables:
+                        try:
+                            p_nom_var = n.model.variables[var_name]
+                            
+                            # Select extendable components
+                            if f"{c}-ext" in p_nom_var.dims:
+                                p_nom_ext = p_nom_var.sel({f"{c}-ext": ext_i})
+                                dim_name = f"{c}-ext"
+                            elif c in p_nom_var.dims:
+                                p_nom_ext = p_nom_var.sel({c: ext_i})
+                                dim_name = c
+                            else:
+                                logging.warning(f"Cannot find appropriate dimension for {c} in {var_name}")
+                                continue
+                            
+                            # Create capacity credit array
+                            capacity_credit_array = xr.DataArray(
+                                n.df(c).loc[ext_i, "carrier"].map(capacity_credit),
+                                dims=[dim_name],
+                                coords={dim_name: ext_i}
+                            )
+                            
+                            lhs += (p_nom_ext * capacity_credit_array).sum(dim_name)
+                            
+                        except (KeyError, ValueError) as e:
+                            logging.warning(f"Error accessing {var_name} for reserve margin: {e}")
+                            continue
 
-            rhs = peak.loc[y]*(1+res_mrgn[y]) - fix_cap 
+            rhs = peak.loc[y] * (1 + res_mrgn[y]) - fix_cap 
 
-            n.model.add_constraints(lhs, ">=", rhs, name = f"reserve_margin_{y}")    
+            if lhs != 0:  # Only add constraint if there are extendable assets
+                n.model.add_constraints(lhs, ">=", rhs, name=f"reserve_margin_{y}")    
 
 def annual_co2_constraints(n, sns, param, scenario_setup):
+    """
+    Annual CO2 constraints using Linopy approach.
+    Updated for PyPSA 0.34.1.
+    """
+    # Check if model is created
+    if not hasattr(n, 'model') or n.model is None:
+        logging.warning("Network model not created yet. Skipping CO2 constraints.")
+        return
 
     if scenario_setup["co2_constraints"] in ["None", "none", ""]:
         return
 
+    # Check if Generator-p variable exists
+    if "Generator-p" not in n.model.variables:
+        logging.warning("Generator-p variable not found in model. Skipping CO2 constraints.")
+        return
+
     gen_emissions = param.loc["co2_emissions"].drop("unit", axis=1)
-    gen_emissions = gen_emissions[gen_emissions.mean(axis=1) >0]
+    gen_emissions = gen_emissions[gen_emissions.mean(axis=1) > 0]
 
-    gen_p = n.model.variables['Generator-p']
-    gen_p = gen_p.sel(Generator = n.generators.query("carrier in @gen_emissions.index").index)
+    # Get relevant generators
+    relevant_gens = n.generators.query("carrier in @gen_emissions.index").index
+    if len(relevant_gens) == 0:
+        logging.info("No generators with CO2 emissions found. Skipping CO2 constraints.")
+        return
 
-    co2_emissions = xr.DataArray(coords=gen_p.coords, dims=gen_p.dims)
+    try:
+        # Access generator dispatch variables
+        gen_p = n.model.variables['Generator-p']
+        gen_p_filtered = gen_p.sel(Generator=relevant_gens)
 
-    for gen in gen_p.coords["Generator"].values:
-        for y in n.investment_periods:
-            co2_emissions.loc[dict(period=y, Generator=gen)] = (
-                gen_emissions.loc[n.generators.loc[gen, "carrier"], y] / n.generators.loc[gen, "efficiency"]
-            )
-    lhs = (gen_p * co2_emissions).sum("Generator").groupby("period").sum()
+        # Create emissions coefficient array
+        co2_emissions = xr.DataArray(coords=gen_p_filtered.coords, dims=gen_p_filtered.dims)
 
-    annual_limits = pd.read_excel(
-        os.path.join(scenario_setup["sub_path"], "carbon_constraints.xlsx"), 
-        sheet_name="annual_carbon_constraint",
-        index_col=[0]).loc[scenario_setup["co2_constraints"]]
+        for gen in relevant_gens:
+            carrier = n.generators.loc[gen, "carrier"]
+            efficiency = n.generators.loc[gen, "efficiency"]
+            
+            if n.multi_invest:
+                for y in n.investment_periods:
+                    # Select snapshots for this investment period
+                    period_snapshots = sns[sns.get_level_values(0) == y]
+                    if len(period_snapshots) > 0:
+                        emission_factor = gen_emissions.loc[carrier, y] / efficiency
+                        co2_emissions.loc[dict(snapshot=period_snapshots, Generator=gen)] = emission_factor
+            else:
+                # Single investment period
+                y = sns[0].year if hasattr(sns[0], 'year') else list(gen_emissions.columns)[0]
+                emission_factor = gen_emissions.loc[carrier, y] / efficiency
+                co2_emissions.loc[dict(Generator=gen)] = emission_factor
 
-    conv = 1
-    if annual_limits.unit.split("/")[0] == "Mt":
-        conv = 1e6
-    elif annual_limits.units.split("/")[0] == "Gt":
-        conv=1e9
+        # Calculate total emissions
+        total_emissions = (gen_p_filtered * co2_emissions).sum("Generator")
+        
+        if n.multi_invest:
+            # Group by investment period
+            lhs = total_emissions.groupby("snapshot.year").sum()
+        else:
+            # Sum over all snapshots for annual constraint
+            lhs = total_emissions.sum("snapshot")
 
-    rhs = (annual_limits.loc[n.investment_periods] * conv)
-    rhs.index.name = "period"
-    n.model.add_constraints(lhs, "<=", rhs, name = 'annual_co2_limits')
+        # Read annual limits
+        annual_limits = pd.read_excel(
+            os.path.join(scenario_setup["sub_path"], "carbon_constraints.xlsx"), 
+            sheet_name="annual_carbon_constraint",
+            index_col=[0]).loc[scenario_setup["co2_constraints"]]
+
+        # Unit conversion
+        conv = 1
+        unit = annual_limits.get("unit", "t")
+        if isinstance(unit, str):
+            if unit.startswith("Mt"):
+                conv = 1e6
+            elif unit.startswith("Gt"):
+                conv = 1e9
+
+        if n.multi_invest:
+            rhs = (annual_limits.loc[n.investment_periods] * conv)
+            rhs.index.name = "year"  # Match the groupby dimension
+        else:
+            # Single period
+            y = sns[0].year if hasattr(sns[0], 'year') else list(annual_limits.index)[0]
+            rhs = annual_limits.loc[y] * conv
+
+        n.model.add_constraints(lhs, "<=", rhs, name='annual_co2_limits')
+        
+    except (KeyError, ValueError) as e:
+        logging.warning(f"Error creating CO2 constraints: {e}")
+        return

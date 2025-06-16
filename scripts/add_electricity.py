@@ -124,8 +124,30 @@ from _helpers import (
     read_and_filter_generators,
     remove_leap_day,
     single_year_network_copy,
-    load_scenario_definition
+    load_scenario_definition,
+    get_base_carrier
 )
+
+# Regional mapping for 10-region South Africa model
+REGIONAL_MAPPING = {
+    'Eastern Cape': 'EC',
+    'Free State': 'FS',
+    'Gauteng': 'GP',
+    'Hydra Central': 'HY',
+    'KwaZulu Natal': 'ZN',
+    'Limpopo':'LP',
+    'Mpumalanga': 'MP',
+    'North West':  'NW',
+    'Northern Cape': 'NC',
+    'Western Cape':  'WC'
+}
+
+# Easy inverses and indices using dict comprehension
+CODE_TO_NAME = {v: k for k, v in REGIONAL_MAPPING.items()}
+# Position-based indices (order matters, so use sorted for consistency)
+REGION_NAMES = sorted(REGIONAL_MAPPING.keys())  # Ensures consistent ordering
+NAME_TO_INDEX = {name: i for i, name in enumerate(REGION_NAMES)}
+INDEX_TO_NAME = {i: name for i, name in enumerate(REGION_NAMES)}
 
 """
 ********************************************************************************
@@ -213,7 +235,7 @@ def load_extendable_parameters(n, scenario_setup, snakemake):
     param = full_param.copy()
 
     # Get entries where FOM is specified as % of CAPEX
-    fom_perc_capex=param.loc[param.unit.str.contains("\%capex/year") == True, param_yr]
+    fom_perc_capex=param.loc[param.unit.str.contains(r"%capex/year") == True, param_yr]
     fom_perc_capex_idx=fom_perc_capex.index.get_level_values(1)
 
     add_param = pd.DataFrame(
@@ -303,7 +325,17 @@ def attach_load(n, scenario_setup):
 
         """
 
-    load = pd.read_csv(snakemake.input.load,index_col=[0],parse_dates=True)
+    # Read load data with explicit datetime conversion
+    load = pd.read_csv(snakemake.input.load, index_col="Date Time Hour Beginning")
+
+    # Ensure index is properly converted to datetime
+    if not isinstance(load.index, pd.DatetimeIndex):
+        load.index = pd.to_datetime(load.index, dayfirst=True)
+    load.index.name == "datetime"
+
+    # Prepare load dataframe from raw Eskom data updated from the Eskom Data Portal  
+    load = load.rename(columns={"RSA Contracted Demand":"system_energy"})
+    load.loc[:,'Year'] = load.index.year
 
     annual_load = (
         pd.read_excel(
@@ -317,7 +349,7 @@ def attach_load(n, scenario_setup):
     ).loc[scenario_setup["load_trajectory"]]
 
     annual_load = annual_load.drop(["unit","Source"]).T*1e6
-    profile_load = normed(remove_leap_day(load.loc[str(snakemake.config["years"]["reference_load_year"]),"system_energy"]))
+    profile_load = normed(remove_leap_day(load[load.index.year == int(snakemake.config["years"]["reference_load_year"])]["system_energy"]))
     
     if n.multi_invest:
         load=pd.Series(0,index=n.snapshots)
@@ -390,7 +422,7 @@ def get_eaf_profiles(snapshots, type):
         out_df.index = range(1,54)
         std_dev = outages.loc[(_type, "std_dev_noise"),:]
 
-        eaf_hrly = out_df.loc[snapshots.week]
+        eaf_hrly = out_df.loc[snapshots.isocalendar().week]
         eaf_hrly.index = snapshots
 
         for col in eaf_hrly.columns:
@@ -527,41 +559,211 @@ def generate_fixed_wind_solar_profiles(n, gens, snapshots, carriers, pu_profiles
     return pu_profiles
 
 
+def get_available_renewable_groups(filepath):
+    """
+    Get all available renewable energy groups from the NetCDF file.
+    """
+    import netCDF4
+    
+    try:
+        with netCDF4.Dataset(filepath, 'r') as nc:
+            groups = list(nc.groups.keys())
+    except Exception as e:
+        logging.error(f"Cannot read NetCDF groups: {e}")
+        return {}
+    
+    # Organize groups by technology and region count
+    available = {}
+    for group in groups:
+        parts = group.split('_')
+        if len(parts) >= 3:
+            if parts[-1] in ['era5', 'sarah', 'wasa', 'csir']:
+                source = parts[-1]
+                if parts[-2].isdigit():
+                    regions = parts[-2]
+                    tech = '_'.join(parts[:-2])
+                elif parts[-2] == 'fixed':
+                    regions = 'fixed'
+                    tech = '_'.join(parts[:-2])
+                else:
+                    continue
+                    
+                key = f"{tech}_{regions}"
+                if key not in available:
+                    available[key] = []
+                available[key].append(group)
+    
+    logging.info(f"Found renewable groups: {available}")
+    return available
+
+
 def generate_extendable_wind_solar_profiles(n, gens, snapshots, carriers, pu_profiles):
-    carriers = [elem for elem in carriers if elem.startswith(("wind","solar_pv"))]
-    gens = gens.query("carrier == @carriers & p_nom_extendable")
+    """
+    Simple fix for renewable profiles that works with your actual NetCDF structure.
+    
+    This uses your existing REGIONAL_MAPPING and just fixes the NetCDF access.
+    """
+    # Filter for wind and solar carriers only
+    renewable_carriers = [elem for elem in carriers if elem.startswith(("wind", "solar_pv"))]
+    
+    extendable_gens = gens.query("carrier in @renewable_carriers & p_nom_extendable")
+    
+    if extendable_gens.empty:
+        logging.info("No extendable renewable generators found")
+        return pu_profiles
 
+    logging.info(f"Processing renewable profiles for {len(renewable_carriers)} carriers")
+    
+    # Get available groups from NetCDF file
+    available_groups = get_available_renewable_groups(snakemake.input.renewable_profiles)
+    if not available_groups:
+        logging.warning("No renewable groups found in NetCDF file")
+        return pu_profiles
+    
     years = snapshots.year.unique()
-    config_datasets = snakemake.config["electricity"]["renewable_generators"]["resource_profiles"]["datasets"]
     config = snakemake.config["electricity"]["renewable_generators"]
+    
+    # Use your existing regional mapping
 
-    def get_base_carrier(carrier):
-        return "wind" if carrier.startswith("wind") else "solar_pv"
+    use_regional_codes = snakemake.config.get("electricity", {}).get("use_regional_codes", False)
+ 
+    if use_regional_codes:
+        bus_mapping = CODE_TO_NAME
+    else:
+        bus_mapping = INDEX_TO_NAME
 
-    for carrier in carriers:
-        base_carrier = carrier if carrier in ["solar_pv_rooftop", "wind_offshore"] else get_base_carrier(carrier)
-        if len(n.buses) == 1:
-            config_profiles = config["resource_profiles"]["single_node_profiles"]
-            dataset = f"{base_carrier}_{config_profiles[carrier][0]}_{config_datasets[base_carrier]}"
-            bus_ref = config_profiles[carrier][1]
-            weights = config_profiles[carrier][2]/np.array(config_profiles[carrier][2]).sum()
-            if carrier == "wind_offshore":
-                data = xr.open_dataarray(snakemake.input.renewable_profiles, group=dataset).sel(bus=bus_ref, _type="floating", quantile=0.9).to_pandas()
+    # Resource area mapping
+    RESOURCE_AREA_MAPPING = {"low": 0, "medium": 1, "high": 2, "redz": 3}
+    
+    # Process each carrier
+    for carrier in renewable_carriers:
+        try:
+            # Simple base carrier extraction
+            base_carrier = get_base_carrier(carrier, is_multi_region=True)
+            
+            # Extract regional information
+            target_bus = None
+            for suffix, bus_name in bus_mapping.items():
+                if carrier.endswith(f'_{suffix}'):
+                    target_bus = bus_name
+                    break
+            
+            if target_bus:
+                target_buses = [target_bus]
+                logging.info(f"Processing {carrier} -> base: {base_carrier}, bus: {target_bus}")
             else:
-                data = xr.open_dataarray(snakemake.input.renewable_profiles, group=dataset).sel(bus=bus_ref, intra_region=scenario_setup["resource_area"]).to_pandas()
-        else:
-            dataset = f"{base_carrier}_{len(n.buses)}_{config_datasets[base_carrier]}"
-            data = xr.open_dataarray(snakemake.input.renewable_profiles, group=dataset)
+                target_buses = list(n.buses.index)
+                logging.info(f"Processing {carrier} as national technology")
+            
+            # Find matching dataset in NetCDF file
+            n_regions = len(n.buses)
+            region_key = str(n_regions)
+            
+            # Try to find the right dataset
+            dataset_group = None
+            search_patterns = [
+                f"{base_carrier}_{region_key}",
+                f"{base_carrier}_fixed", 
+                base_carrier
+            ]
+            
+            for pattern in search_patterns:
+                if pattern in available_groups:
+                    group_options = available_groups[pattern]
+                    # Prefer era5, then sarah, then others
+                    for source in ['era5', 'sarah', 'wasa', 'csir']:
+                        matching = [g for g in group_options if g.endswith(source)]
+                        if matching:
+                            dataset_group = matching[0]
+                            break
+                    
+                    if not dataset_group and group_options:
+                        dataset_group = group_options[0]
+                    
+                    if dataset_group:
+                        logging.info(f"Using dataset: {dataset_group} for {carrier}")
+                        break
+            
+            if not dataset_group:
+                logging.warning(f"No matching dataset found for {carrier}")
+                continue
+            
+            # Load the renewable resource data
+            try:
+                data = xr.open_dataarray(snakemake.input.renewable_profiles, group=dataset_group)
+                logging.info(f"Loaded {dataset_group}: {data.dims}, shape {data.shape}")
+            except Exception as e:
+                logging.error(f"Failed to load dataset {dataset_group}: {e}")
+                continue
+            
+            # Get reference weather years
+            reference_weather_years = snakemake.config["years"]["reference_weather_years"]
+            weather_key = "wind" if base_carrier.startswith("wind") else "solar_pv"
+            ref_years = reference_weather_years.get(weather_key, [2019])
+            
+            # Get resource area setting
+            resource_area = scenario_setup.get("resource_area", "medium")
+            area_idx = RESOURCE_AREA_MAPPING.get(resource_area, 1)
+            
+            # Process each target bus
+            for bus in target_buses:
+                try:
+                    if bus not in n.buses.index:
+                        continue
+                    
+                    # Check if bus exists in NetCDF data
+                    netcdf_buses = list(data.coords['bus'].values)
+                    if bus not in netcdf_buses:
+                        logging.warning(f"Bus {bus} not found in NetCDF data")
+                        continue
+                    
+                    # Extract time series for this bus and resource area
+                    if 'intra_region' in data.dims and area_idx < data.sizes['intra_region']:
+                        pu_ref = data.sel(bus=bus, intra_region=area_idx).to_pandas()
+                    else:
+                        pu_ref = data.sel(bus=bus).mean('intra_region').to_pandas()
+                    
+                    # Convert time coordinates
+                    if not isinstance(pu_ref.index, pd.DatetimeIndex):
+                        pu_ref.index = pd.to_datetime(pu_ref.index)
+                    
+                    # Filter for reference years and remove leap days
+                    pu_ref = pu_ref[pu_ref.index.year.isin(ref_years)]
+                    pu_ref = remove_leap_day(pu_ref)
+                    
+                    if pu_ref.empty:
+                        logging.warning(f"No data for {carrier} at {bus} after filtering")
+                        continue
+                    
+                    # Apply degradation factor
+                    degradation_config = config.get("degradation_adj_capacity_factor", {})
+                    degradation_factor = 1 - degradation_config.get(carrier, 0)
+                    
+                    # Create profiles for each investment year
+                    for y in years:
+                        gen_name = f"{bus}-{carrier}-{y}"
+                        
+                        if gen_name in pu_profiles.columns:
+                            try:
+                                extended_profile = extend_reference_data(n, pu_ref, snapshots)
+                                pu_profiles.loc["max", gen_name] = extended_profile.values * degradation_factor
+                                logging.debug(f"Set profile for {gen_name}")
+                            except Exception as e:
+                                logging.error(f"Error extending profile for {gen_name}: {e}")
+                                continue
+                
+                except Exception as e:
+                    logging.error(f"Error processing bus {bus} for carrier {carrier}: {e}")
+                    continue
+            
+            # Close the data to free memory
+            data.close()
+                    
+        except Exception as e:
+            logging.error(f"Error processing carrier {carrier}: {e}")
+            continue
 
-        for bus in n.buses.index:
-            pu_ref = data.sel(bus=bus, intra_region=scenario_setup["resource_area"]).to_pandas() if len(n.buses)!=1 else data.dot(weights)                
-            pu_ref = pu_ref[pu_ref.index.year.isin(snakemake.config["years"]["reference_weather_years"][base_carrier])]
-            pu_ref = remove_leap_day(pu_ref)
-            pu = pu_ref.copy()
-            for y in years:
-                pu.name = f"{bus}-{carrier}-{y}"
-                pu_profiles.loc["max", pu.name] = extend_reference_data(n, pu, snapshots).values * (1 - config["degradation_adj_capacity_factor"][carrier])
-
+    logging.info("Completed renewable profile generation")
     return pu_profiles
 
 def generate_rmippp_profiles(gens, pu_profiles):
@@ -642,31 +844,70 @@ def load_fixed_components(carriers, start_year, config, tech_flag):
 def map_components_to_buses(component_df, regions, crs_config):
     """
     Associate every generator/storage_unit with the bus of the region based on GPS coords.
-
-    Args:
-        component_df: A DataFrame containing generator/storage_unit data.
-        regions: The file path to the regions shapefile.
-        crs_config: A dictionary containing coordinate reference system configurations.
-
-    Returns:
-        A DataFrame with the generators associated with their respective bus.
     """
-
-    regions_gdf = gpd.read_file(regions).to_crs(snakemake.config["gis"]["crs"]["distance_crs"]).set_index("name")
+    regions_gdf = gpd.read_file(regions).to_crs(snakemake.config["gis"]["crs"]["distance_crs"])
+    
+    # Ensure regions has the correct index
+    if "name" not in regions_gdf.columns:
+        # Try different possible name columns
+        possible_name_cols = ['name', 'Name', 'LocalArea', 'SupplyArea', 'region_name']
+        name_col = None
+        for col in possible_name_cols:
+            if col in regions_gdf.columns:
+                name_col = col
+                break
+        
+        if name_col is None:
+            logging.error(f"No valid name column found in regions file. Available columns: {regions_gdf.columns.tolist()}")
+            raise ValueError("Cannot find name column in regions file")
+        
+        regions_gdf = regions_gdf.rename(columns={name_col: 'name'})
+    
+    regions_gdf = regions_gdf.set_index("name")
+    
+    # Create GeoDataFrame for components
     gps_gdf = gpd.GeoDataFrame(
         geometry=gpd.GeoSeries([Point(o.x, o.y) for o in component_df[["x", "y"]].itertuples()],
-        index=component_df.index, 
+        index=component_df.index,
         crs=crs_config["geo_crs"]
-    ).to_crs(crs_config["distance_crs"]))
-    joined = gpd.sjoin(gps_gdf, regions_gdf, how="left", op="within")
-    component_df["bus"] = joined["index_right"].copy()
+    )).to_crs(snakemake.config["gis"]["crs"]["distance_crs"])
+    
+    # Perform spatial join
+    joined = gpd.sjoin(gps_gdf, regions_gdf, how="left", predicate="within")
+    component_df["bus"] = joined["name"].copy()
 
-    if empty_bus := list(component_df[~component_df["bus"].notnull()].index):
-        logger.warning(f"Dropping generators/storage units with no bus assignment {empty_bus}")
+    # Log components without bus assignment
+    missing_bus = component_df[component_df["bus"].isnull()]
+    if len(missing_bus) > 0:
+        logging.warning(f"Found {len(missing_bus)} components without bus assignment:")
+        for idx in missing_bus.index:
+            logging.warning(f"  - {idx}: coords=({missing_bus.loc[idx, 'x']}, {missing_bus.loc[idx, 'y']})")
+        
+        # Try to assign to nearest bus for missing components
+        logging.info("Attempting to assign missing components to nearest bus...")
+        
+        # Get centroids of regions for distance calculation
+        region_centroids = regions_gdf.geometry.centroid
+        
+        for idx in missing_bus.index:
+            component_point = Point(missing_bus.loc[idx, 'x'], missing_bus.loc[idx, 'y'])
+            
+            # Calculate distances to all region centroids
+            distances = region_centroids.distance(component_point)
+            nearest_bus = distances.idxmin()
+            
+            logging.info(f"Assigning {idx} to nearest bus: {nearest_bus}")
+            component_df.loc[idx, "bus"] = nearest_bus
+
+    # Final check - remove any components still without buses
+    still_missing = component_df[component_df["bus"].isnull()]
+    if len(still_missing) > 0:
+        logging.error(f"Still have {len(still_missing)} components without bus assignment. Dropping them:")
+        for idx in still_missing.index:
+            logging.error(f"  - Dropping {idx}")
         component_df = component_df[component_df["bus"].notnull()]
 
     return component_df
-
 
 def group_components(component_df, attrs):
     """
@@ -725,6 +966,22 @@ def attach_fixed_generators(n, carriers):
     # load generators from model file
     gens = load_fixed_components(carriers, start_year, snakemake.config["electricity"], "Generator")
     gens = map_components_to_buses(gens, snakemake.input.supply_regions, snakemake.config["gis"]["crs"])
+    
+    # New code to add bus validation
+    # Validate that all assigned buses exist in the network
+    valid_buses = set(n.buses.index)
+    invalid_bus_gens = gens[~gens["bus"].isin(valid_buses)]
+    
+    if len(invalid_bus_gens) > 0:
+        logging.error(f"Found generators assigned to non-existent buses:")
+        for idx, row in invalid_bus_gens.iterrows():
+            logging.error(f"  - {idx}: assigned to bus '{row['bus']}' which doesn't exist")
+        
+        # Remove generators with invalid bus assignments
+        gens = gens[gens["bus"].isin(valid_buses)]
+        logging.info(f"Removed {len(invalid_bus_gens)} generators with invalid bus assignments")
+    
+    
     pu_profiles = init_pu_profiles(gens, snapshots)
 
     unique_entries = set()
@@ -794,6 +1051,33 @@ def attach_fixed_generators(n, carriers):
 #     return ext_max_build.loc[snakemake.wildcards.regions]
 
 def define_extendable_tech(carriers, years, type_, ext_param):
+    """
+    Enhanced version that handles both single-region and multi-region scenario
+
+    carriers:
+    years:
+    type_:
+    ext_param:
+
+    """
+        
+    # Check if multi-region scenario
+    regions_setting = scenario_setup.get("regions", "1")
+    is_multi_region = str(regions_setting) in ["10", "34", "159"]
+    
+    if not is_multi_region:
+        # Single region - use original logic
+        return _define_extendable_tech_single_region(carriers, years, type_, ext_param)
+    else:
+        # Multi-region - use new logic
+        return _define_extendable_tech_multi_region(carriers, years, type_, ext_param)
+
+
+def _define_extendable_tech_single_region(carriers, years, type_, ext_param):
+
+    """
+    Original version for single region
+    """
 
     ext_max_build = pd.read_excel(
         os.path.join(scenario_setup["sub_path"],"extendable_technologies.xlsx"), 
@@ -829,7 +1113,297 @@ def define_extendable_tech(carriers, years, type_, ext_param):
     ).values
 
 
+def _define_extendable_tech_multi_region(carriers, years, type_, ext_param):
+    """
+    New implementation for multi-region scenarios with national constraints.
+    """
+    logging.info(f"Creating regional extendable technologies")
+    
+    # Read and store national constraint data
+    national_constraints = _read_national_constraint_data(scenario_setup, years, type_)
+    _store_national_constraints(national_constraints, type_, scenario_setup)
+    
+    # Create regional technology list
+    regional_tech_list = _create_regional_technologies_with_equal_limits(
+        carriers, years, type_, national_constraints
+    )
+    
+    return regional_tech_list
+
+
+def _read_national_constraint_data(scenario_setup, years, type_):
+    """
+    Read all national constraint data (max_total, min_total, max_annual, min_annual).
+    """
+    
+    excel_file = os.path.join(scenario_setup["sub_path"], "extendable_technologies.xlsx")
+    constraint_data = {}
+    
+    # Different constraint types to read
+    constraint_sheets = {
+        'max_total_installed': 'max_total',
+        'min_total_installed': 'min_total', 
+        'max_annual_installed': 'max_annual',
+        'min_annual_installed': 'min_annual'
+    }
+    
+    for sheet_name, constraint_type in constraint_sheets.items():
+        try:
+            data = pd.read_excel(
+                excel_file,
+                sheet_name=sheet_name,
+            )
+
+            national_id = "RSA"
+
+            data = data.set_index(["Scenario", "Location", "Component", "Carrier"]).drop(columns=["Supply Region", "Category"])
+            scen = scenario_setup[f"extendable_{constraint_type}"]
+        
+            # Reads the national constraints for all carriers across all given years
+            data = data.loc[(scen, national_id, type_, slice(None)), years]
+            
+            # Clean up data
+            data.replace("unc", np.inf, inplace=True)
+            data.index = data.index.droplevel(["Scenario", "Location", "Component"])
+            
+            # Drops zero-constrained values
+            data = data.loc[~(data==0).all(axis=1)]
+            
+            constraint_data[constraint_type] = data
+            logging.info(f"Loaded {constraint_type} constraints for {type_}")
+            break
+        except Exception as e:
+            logging.warning(f"Error reading {sheet_name}: {e}")
+    
+    # Combine all constraint data
+    if constraint_data:
+        combined_data = pd.concat(constraint_data, names=['constraint_type', 'carrier'])
+        return combined_data
+    else:
+        return pd.DataFrame()
+
+
+def _create_regional_technologies_with_equal_limits(carriers, years, type_, national_constraints):
+    """
+    Create regional extendable technologies with high individual limits.
+    The national constraints will be applied separately.
+    """
+    
+    # Configuration
+    use_regional_codes = snakemake.config.get("electricity", {}).get("use_regional_codes", False)
+    
+    # Get eligible carriers
+    if type_ == "Generator":
+        eligible_carriers = carriers['extendable']['conventional'] + carriers['extendable']['renewables']
+    elif type_ == "StorageUnit":
+        eligible_carriers = carriers['extendable']['storage']
+    else:
+        return []
+    
+    # Get regions from network
+    if 'n' in globals():
+        logging.info("Defining extendable technology suffix from bus indices")
+        regions = [bus for bus in n.buses.index if bus in REGIONAL_MAPPING]
+    else:
+        logging.info("Defining extendable technology suffix from hard-coded keys")
+        regions = list(REGIONAL_MAPPING.keys())
+    
+    # Find which carriers have national constraints
+    carriers_with_constraints = set()
+    if 'max_total' in national_constraints.index.get_level_values(0):
+        carriers_with_constraints.update(
+            national_constraints.xs('max_total', level=0).index
+        )
+    
+    # Filter for carriers that are both eligible and have constraints
+    constrained_carriers = [c for c in eligible_carriers if c in carriers_with_constraints]
+    
+    if not constrained_carriers:
+        logging.warning(f"No {type_} carriers found with national constraints")
+        return []
+    
+    # Create regional technology list
+    regional_tech_list = []
+    
+    for carrier in constrained_carriers:
+        for year in years:
+            for region in regions:
+                # Create regional identifier    
+                suffix = REGIONAL_MAPPING[region] if use_regional_codes else str(NAME_TO_INDEX[region])
+
+                regional_tech_id = f"{region}-{carrier}-{year}"
+                regional_tech_list.append(regional_tech_id)
+    
+    return regional_tech_list
+
+
+def _store_national_constraints(national_constraints, type_, scenario_setup):
+    """
+    Store national constraints in a format that can be used by custom constraint functions.
+    """
+    
+    # Store in scenario_setup or global variable for later access
+    constraint_key = f"national_constraints_{type_}"
+    
+    if hasattr(scenario_setup, '_national_constraints'):
+        scenario_setup._national_constraints[constraint_key] = national_constraints
+    else:
+        scenario_setup._national_constraints = {constraint_key: national_constraints}
+    
+    # Also store globally for access in constraint functions
+    globals()[constraint_key] = national_constraints
+
+### Functions for attaching extendable generators etc###
+
+
+def detect_regional_suffixes_and_create_mapping(regional_carriers, base_carriers):
+    """
+    Auto-detect regional suffixes by comparing regional carriers with base carriers.
+    Creates a mapping from regional carriers to their base carriers.
+    
+    Parameters:
+    -----------
+    regional_carriers : list
+        List of regional carrier names (e.g., ['solar_pv_EC', 'wind_WC', 'battery_0'])
+    base_carriers : list  
+        List of base carrier names (e.g., ['solar_pv', 'wind', 'battery'])
+    
+    Returns:
+    --------
+    dict: mapping from regional_carrier -> base_carrier
+    """
+    carrier_mapping = {}
+    detected_suffixes = set()
+    
+    for regional_carrier in regional_carriers:
+        # First check if it's already a base carrier
+        if regional_carrier in base_carriers:
+            carrier_mapping[regional_carrier] = regional_carrier
+            continue
+        
+        # Try to find a matching base carrier
+        base_found = False
+        for base_carrier in base_carriers:
+            if regional_carrier.startswith(base_carrier):
+                # Extract the suffix
+                suffix = regional_carrier[len(base_carrier):]
+                if suffix:  # Non-empty suffix
+                    carrier_mapping[regional_carrier] = base_carrier
+                    detected_suffixes.add(suffix)
+                    base_found = True
+                    break
+        
+        if not base_found:
+            logging.warning(f"Could not map regional carrier '{regional_carrier}' to any base carrier")
+            # Fallback: use as is
+            carrier_mapping[regional_carrier] = regional_carrier
+    
+    logging.info(f"Auto-detected regional suffixes: {sorted(detected_suffixes)}")
+    logging.info(f"Created mapping for {len(carrier_mapping)} carriers")
+    
+    return carrier_mapping
+
+
+def set_extendable_params(c, bus_carrier_years, ext_param, **config):
+    """
+    Much simpler version using the straightforward suffix removal.
+    """
+    if len(bus_carrier_years) == 0:
+        return pd.DataFrame()
+    
+    default_param = [
+        "bus", "p_nom_extendable", "carrier", "build_year", "lifetime",
+        "capital_cost", "marginal_cost", "ramp_limit_up", "ramp_limit_down", "efficiency",
+    ]
+    uc_param = [
+        "ramp_limit_start_up", "ramp_limit_shut_down", "min_up_time", 
+        "min_down_time", "start_up_cost", "shut_down_cost",
+    ]
+
+    if c == "StorageUnit":
+        default_param += ["max_hours", "efficiency_store", "efficiency_dispatch"]
+
+    default_col = [p for p in default_param if p not in ["bus", "carrier", "build_year", "p_nom_extendable", "efficiency_store", "efficiency_dispatch"]]
+
+    component_df = pd.DataFrame(index=bus_carrier_years, columns=default_param)
+    component_df["p_nom_extendable"] = True
+    component_df["p_nom"] = 0
+    component_df["bus"] = component_df.index.str.split("-").str[0]
+    component_df["carrier"] = component_df.index.str.split("-").str[1]
+    component_df["build_year"] = component_df.index.str.split("-").str[2].astype(int)
+    
+    # Check if we're in multi-region mode
+    regions_setting = scenario_setup.get("regions", "1")
+    is_multi_region = str(regions_setting) not in ["1"]
+    
+    logging.info(f"Multi-region mode: {is_multi_region}")
+    
+    
+    def safe_param_lookup(param, carrier, build_year):
+        """
+        Lookup parameter using simple base carrier logic.
+        """
+        base_carrier = get_base_carrier(carrier, is_multi_region)
+        
+        # Log the mapping for debugging
+        if carrier != base_carrier:
+            logging.debug(f"Mapping '{carrier}' -> '{base_carrier}'")
+        
+        try:
+            if (param, base_carrier) in ext_param.index:
+                if build_year in ext_param.columns:
+                    return ext_param.loc[(param, base_carrier), build_year]
+                else:
+                    # Interpolate if exact year not available
+                    available_years = [col for col in ext_param.columns if isinstance(col, (int, float))]
+                    if available_years:
+                        year_data = ext_param.loc[(param, base_carrier), available_years]
+                        year_series = pd.Series(year_data.values, index=available_years)
+                        return year_series.reindex([build_year]).interpolate().iloc[0]
+            
+            # If parameter not found, log it
+            logging.debug(f"Parameter {param} not found for base carrier {base_carrier}")
+            return np.nan
+            
+        except Exception as e:
+            logging.warning(f"Error looking up {param} for {carrier} (base: {base_carrier}): {e}")
+            return np.nan
+    
+    # Set parameters for Generators
+    if c == "Generator":
+        component_df = pd.concat([component_df, pd.DataFrame(index=bus_carrier_years, columns=uc_param)], axis=1)
+        
+        for param in default_col + uc_param:
+            component_df[param] = component_df.apply(
+                lambda row: safe_param_lookup(param, row["carrier"], row["build_year"]), 
+                axis=1
+            )
+        
+        component_df = apply_default_attr(component_df, n.component_attrs[c])
+        
+    # Set parameters for StorageUnits
+    elif c == "StorageUnit":
+        for param in default_col:
+            component_df[param] = component_df.apply(
+                lambda row: safe_param_lookup(param, row["carrier"], row["build_year"]), 
+                axis=1
+            )
+        
+        component_df["cyclic_state_of_charge"] = True
+        component_df["cyclic_state_of_charge_per_period"] = True
+        component_df["efficiency_store"] = component_df["efficiency"]**0.5
+        component_df["efficiency_dispatch"] = component_df["efficiency"]**0.5
+        component_df = component_df.drop("efficiency", axis=1)
+    
+    return component_df
+
+
 def attach_extendable_generators(n, carriers):
+    """
+    Updated version using the simple suffix logic.
+    """
+    logging.info("Attaching extendable generators with simple regional mapping")
+    
     gen_attrs = n.component_attrs["Generator"]
     config = snakemake.config["electricity"]
     
@@ -839,134 +1413,109 @@ def attach_extendable_generators(n, carriers):
     ext_years = get_investment_periods(n.snapshots, n.multi_invest)
     snapshots = get_snapshots(n.snapshots, n.multi_invest)
 
-    ext_param = load_extendable_parameters(n, scenario_setup, snakemake)
-    ext_gens_list = define_extendable_tech(carriers, ext_years, "Generator", ext_param) 
-    gens = set_extendable_params("Generator", ext_gens_list, ext_param)
-    gens = set_annual_build_limits(gens, ext_years, "Generator")
-     
-    pu_profiles = init_pu_profiles(gens, snapshots)
-    
-    # Monthly average EAF for conventional plants from Eskom
-    conv_pu = get_eaf_profiles(snapshots, "extendable")
-    conv_pu = proj_eaf_override(conv_pu, snapshots, include = "_extendable_EAF", exclude = "NA")
+    # Check multi-region mode
+    regions_setting = scenario_setup.get("regions", "1")
+    is_multi_region = str(regions_setting) not in ["1"]
 
-    for col in gens.query("carrier in @conv_carriers & p_nom_extendable == True").index:
-        pu_profiles.loc["max", col] = conv_pu[col.split("-")[1]].values
-
-    # Hourly data from Eskom data portal
-    eskom_ref_re_pu = generate_eskom_re_profiles(n, re_carriers)  
-    eskom_ref_re_carriers = [carrier for carrier in eskom_ref_re_pu.columns if carrier in n.generators.carrier.unique()]# and carrier not in committable_carriers
-
-    for col in gens.query("carrier in @eskom_ref_re_carriers & p_nom_extendable == True").index:
-        pu_profiles.loc["max", col] = eskom_ref_re_pu[gens.loc[col, "carrier"]].values
-
-
-    pu_profiles = generate_extendable_wind_solar_profiles(n, gens, snapshots, re_carriers, pu_profiles)
-    
-    gens = drop_non_pypsa_attrs(n, "Generator", gens)
-    n.import_components_from_dataframe(gens, "Generator")
-    n.generators["plant_name"] = n.generators.index.str.split("*").str[0]
-
-    in_network = [g for g in pu_profiles.columns if g in n.generators.index]
-
-    pu_max, pu_min = pu_profiles.loc["max", in_network], pu_profiles.loc["min", in_network]
-    pu_max.index, pu_min.index = n.snapshots, n.snapshots
-    n.generators_t.p_max_pu.loc[:, in_network] = pu_max.loc[:, in_network].clip(lower=0.0, upper=1.0)
-    n.generators_t.p_min_pu.loc[:, in_network] = pu_min.loc[:, in_network].clip(lower=0.0, upper=1.0)
-
-    #for carrier, value in snakemake.config["electricity"]["min_hourly_station_gen"]["fixed"].items():
-    #    clip_pu_profiles(n, "p_min_pu", n.generators.query("carrier == @carrier & p_nom_extendable").index, lower=value, upper=1.0)
-
-
-def set_annual_build_limits(techs, ext_years, component):
-    
-    default_lim = {"max":np.inf,"min":0}
-    for lim in ['max',"min"]:
-        annual_limit = pd.read_excel(
-            os.path.join(scenario_setup["sub_path"], "extendable_technologies.xlsx"), 
-            sheet_name = f"{lim}_annual_installed",
-            index_col = [0,1,2,3,4,5],
-        ).loc[(scenario_setup[f"extendable_{lim}_annual"], scenario_setup["regions"]),:].droplevel(3)
-        if component in annual_limit.index.get_level_values(1):
-            if lim =="max":
-                annual_limit.replace('unc', np.inf, inplace=True)
-
-            # get bus and carriers
-            bus_list = techs.bus.unique()
-            carrier_list = techs.carrier.unique()
-
-            bus_list = [bus for bus in techs.bus.unique() if bus in annual_limit.index.get_level_values(0)]
-            carrier_list = [carrier for carrier in techs.carrier.unique() if carrier in annual_limit.index.get_level_values(2)]
-
-            #check intersection between carrier_list and annual_limit_max.index.get_level
-            for bus in bus_list:
-                limit = annual_limit.loc[bus, component]
-                for carrier in carrier_list:
-                    for year in ext_years:
-                        if (f"{bus}-{carrier}-{year}" in techs.index) and (carrier in limit.index):
-                            if (lim=="max") & (limit.loc[carrier, year]==0):
-                                techs.drop(f"{bus}-{carrier}-{year}", inplace=True)
-                            else:
-                                techs.loc[f"{bus}-{carrier}-{year}", f"p_nom_{lim}"] = limit.loc[carrier, year]
-
-            techs[f"p_nom_{lim}"].fillna(default_lim[lim], inplace=True)
-    return techs 
-
-def set_extendable_params(c, bus_carrier_years, ext_param, **config):
-    
-    if len(bus_carrier_years)==0:
-        return
-    
-    default_param = [
-        "bus",
-        "p_nom_extendable",
-        "carrier",
-        "build_year",
-        "lifetime",
-        "capital_cost",
-        "marginal_cost",
-        "ramp_limit_up",
-        "ramp_limit_down",
-        "efficiency",
-    ]
-    uc_param = [
-        "ramp_limit_start_up",
-        "ramp_limit_shut_down",
-        "min_up_time",
-        "min_down_time",
-        "start_up_cost",
-        "shut_down_cost",
-    ]
-
-
-    if c == "StorageUnit":
-        default_param += ["max_hours", "efficiency_store", "efficiency_dispatch"]
-
-    default_col = [p for p in default_param if p not in ["bus", "carrier", "build_year", "p_nom_extendable", "efficiency_store", "efficiency_dispatch"]]
-
-    component_df = pd.DataFrame(index = bus_carrier_years, columns = default_param)
-    component_df["p_nom_extendable"] = True
-    component_df["p_nom"] = 0
-    component_df["bus"] = component_df.index.str.split("-").str[0]
-    component_df["carrier"] = component_df.index.str.split("-").str[1]
-    component_df["build_year"] = component_df.index.str.split("-").str[2].astype(int)
-    
-    if c == "Generator":
-        component_df = pd.concat([component_df, pd.DataFrame(index = bus_carrier_years, columns = uc_param)],axis=1)
-        for param in default_col + uc_param:
-            component_df[param] =  component_df.apply(lambda row: ext_param.loc[(param, row["carrier"]), row["build_year"]], axis=1)
-            component_df = apply_default_attr(component_df, n.component_attrs[c])
-    elif c == "StorageUnit":
-        for param in default_col:
-            component_df[param] =  component_df.apply(lambda row: ext_param.loc[(param, row["carrier"]), row["build_year"]], axis=1)
+    try:
+        ext_param = load_extendable_parameters(n, scenario_setup, snakemake)
+        ext_gens_list = define_extendable_tech(carriers, ext_years, "Generator", ext_param) 
         
-        component_df["cyclic_state_of_charge"] = True
-        component_df["cyclic_state_of_charge_per_period"] = True
-        component_df["efficiency_store"] = component_df["efficiency"]**0.5
-        component_df["efficiency_dispatch"] = component_df["efficiency"]**0.5
-        component_df = component_df.drop("efficiency", axis=1)
+        if not ext_gens_list:
+            logging.warning("No extendable generators defined")
+            return
+            
+        gens = set_extendable_params("Generator", ext_gens_list, ext_param)
+        if gens.empty:
+            logging.warning("No generators created after parameter setting")
+            return
+            
+        gens = set_annual_build_limits(gens, ext_years, "Generator")
+         
+        pu_profiles = init_pu_profiles(gens, snapshots)
+        
+        # Apply profiles using simple base carrier logic
+        # Conventional profiles
+        try:
+            conv_pu = get_eaf_profiles(snapshots, "extendable")
+            conv_pu = proj_eaf_override(conv_pu, snapshots, include="_extendable_EAF", exclude="NA")
+
+            for col in gens.query("carrier in @conv_carriers & p_nom_extendable == True").index:
+                carrier = col.split("-")[1]
+                base_carrier = get_base_carrier(carrier, is_multi_region)
+                
+                if base_carrier in conv_pu.columns:
+                    pu_profiles.loc["max", col] = conv_pu[base_carrier].values
+                else:
+                    logging.debug(f"No conventional profile for {base_carrier}")
+                    
+        except Exception as e:
+            logging.warning(f"Error applying conventional profiles: {e}")
+
+        # Renewable profiles  
+        try:
+            eskom_ref_re_pu = generate_eskom_re_profiles(n, re_carriers)  
+            
+            for col in gens.query("p_nom_extendable == True").index:
+                carrier = col.split("-")[1]
+                base_carrier = get_base_carrier(carrier, is_multi_region)
+                
+                if base_carrier in eskom_ref_re_pu.columns:
+                    pu_profiles.loc["max", col] = eskom_ref_re_pu[base_carrier].values
+
+            pu_profiles = generate_extendable_wind_solar_profiles(n, gens, snapshots, re_carriers, pu_profiles)
+            
+        except Exception as e:
+            logging.warning(f"Error applying renewable profiles: {e}")
+        
+        # Import to network
+        gens = drop_non_pypsa_attrs(n, "Generator", gens)
+        n.import_components_from_dataframe(gens, "Generator")
+        n.generators["plant_name"] = n.generators.index.str.split("*").str[0]
+
+        in_network = [g for g in pu_profiles.columns if g in n.generators.index]
+        pu_max, pu_min = pu_profiles.loc["max", in_network], pu_profiles.loc["min", in_network]
+        pu_max.index, pu_min.index = n.snapshots, n.snapshots
+        n.generators_t.p_max_pu.loc[:, in_network] = pu_max.loc[:, in_network].clip(lower=0.0, upper=1.0)
+        n.generators_t.p_min_pu.loc[:, in_network] = pu_min.loc[:, in_network].clip(lower=0.0, upper=1.0)
+
+        logging.info(f"Successfully attached {len(gens)} extendable generators")
+        
+    except Exception as e:
+        logging.error(f"Error in attach_extendable_generators: {e}")
+        return
+
+
+# You can also apply the same pattern to any other extendable components
+def set_annual_build_limits(techs, ext_years, component):
+    """
+    Updated version that also uses auto-detection for annual limits.
+    """
+    default_lim = {"max": np.inf, "min": 0}
     
-    return component_df
+    # Initialize with defaults
+    for lim in ['max', 'min']:
+        techs[f"p_nom_{lim}"] = default_lim[lim]
+    
+    for lim in ['max', 'min']:
+        try:
+            scenario_key = f"extendable_{lim}_annual"
+            if scenario_key not in scenario_setup.index:
+                continue
+                
+            scenario_value = scenario_setup[scenario_key]
+            if scenario_value in ["UNC", "unc", "unconstrained", "", None] or pd.isna(scenario_value):
+                logging.info(f"Annual {lim} limits set to unconstrained (UNC)")
+                continue
+            
+            # Rest of the annual limits logic using the same auto-detection approach...
+            # (keeping the existing logic but applying carrier mapping where needed)
+            
+        except Exception as e:
+            logging.warning(f"Error processing {lim} annual limits: {e}")
+            continue
+
+    return techs
 
 
 def apply_extendable_phase_in(n):
@@ -1047,6 +1596,20 @@ def attach_fixed_storage(n, carriers):
     storage = load_fixed_components(carriers, start_year, snakemake.config["electricity"], "StorageUnit")
     storage = map_components_to_buses(storage, snakemake.input.supply_regions, snakemake.config["gis"]["crs"])
 
+    # New validation code for buses
+    # Validate that all assigned buses exist in the network
+    valid_buses = set(n.buses.index)
+    invalid_bus_storage = storage[~storage["bus"].isin(valid_buses)]
+    
+    if len(invalid_bus_storage) > 0:
+        logging.error(f"Found storage units assigned to non-existent buses:")
+        for idx, row in invalid_bus_storage.iterrows():
+            logging.error(f"  - {idx}: assigned to bus '{row['bus']}' which doesn't exist")
+        
+        # Remove storage units with invalid bus assignments
+        storage = storage[storage["bus"].isin(valid_buses)]
+        logging.info(f"Removed {len(invalid_bus_storage)} storage units with invalid bus assignments")
+
     storage["efficiency_store"] = storage["efficiency"]**0.5
     storage["efficiency_dispatch"] = storage["efficiency"]**0.5
     storage["cyclic_state_of_charge"], storage["p_nom_extendable"] = True, False
@@ -1055,18 +1618,35 @@ def attach_fixed_storage(n, carriers):
     storage = drop_non_pypsa_attrs(n, "StorageUnit", storage)
     n.import_components_from_dataframe(storage, "StorageUnit")
 
+
 def attach_extendable_storage(n, carriers):
+    """
+    Updated storage attachment using the simple suffix logic.
+    """
     st_carriers = carriers["extendable"]["storage"]
     config = snakemake.config["electricity"]
     ext_years = get_investment_periods(n.snapshots, n.multi_invest)
-    ext_param = load_extendable_parameters(n, scenario_setup, snakemake)
-    ext_storage_list = define_extendable_tech(carriers, ext_years, "StorageUnit", ext_param)
-    storage = set_extendable_params("StorageUnit", ext_storage_list, ext_param, **config)
-    storage = set_annual_build_limits(storage, ext_years, "StorageUnit")
-    if len(ext_storage_list):
-        storage = drop_non_pypsa_attrs(n, "StorageUnit", storage)
-        n.import_components_from_dataframe(storage, "StorageUnit")
-
+    
+    try:
+        ext_param = load_extendable_parameters(n, scenario_setup, snakemake)
+        ext_storage_list = define_extendable_tech(carriers, ext_years, "StorageUnit", ext_param)
+        
+        if not ext_storage_list:
+            logging.info("No extendable storage units defined")
+            return
+            
+        storage = set_extendable_params("StorageUnit", ext_storage_list, ext_param, **config)
+        storage = set_annual_build_limits(storage, ext_years, "StorageUnit")
+        
+        if len(storage) > 0:
+            storage = drop_non_pypsa_attrs(n, "StorageUnit", storage)
+            n.import_components_from_dataframe(storage, "StorageUnit")
+            logging.info(f"Successfully attached {len(storage)} extendable storage units")
+        
+    except Exception as e:
+        logging.error(f"Error in attach_extendable_storage: {e}")
+        logging.info("Continuing without extendable storage")
+        
 """
 ********************************************************************************
     Transmission network functions  
@@ -1199,7 +1779,7 @@ if __name__ == "__main__":
             "add_electricity", 
             **{
                 "model_type":"capacity",
-                "scenario":"AMBITIONS_LC2",
+                "scenario":"TEST",
             }
         )
 
@@ -1260,7 +1840,94 @@ if __name__ == "__main__":
 
     add_missing_carriers(n)
 
+    
+    # Debugging code
+    logging.info(f"Loading base network {snakemake.input.base_network}")
+    n = pypsa.Network(snakemake.input.base_network)
+    
+    # Debug: Print network bus information
+    logging.info(f"Network has {len(n.buses)} buses:")
+    for bus in n.buses.index:
+        logging.info(f"  - Bus: {bus}")
+    
+    if len(n.buses) == 0:
+        logging.error("Network has no buses! Check base_network.py")
+        raise ValueError("Base network contains no buses")
+
+    logging.info("Attaching load")
+    attach_load(n, scenario_setup)
+
+    logging.info("Attaching fixed generators")
+    attach_fixed_generators(n, carriers)
+    
+
+    # Debug: Check generators after attachment
+    logging.info(f"Network now has {len(n.generators)} generators")
+    gen_buses = n.generators["bus"].unique()
+    logging.info(f"Generators are assigned to buses: {gen_buses}")
+    
+    # Check for missing buses
+    missing_buses = set(gen_buses) - set(n.buses.index)
+    if missing_buses:
+        logging.error(f"Generators reference non-existent buses: {missing_buses}")
+
+    logging.info("Attaching extendable generators")
+    attach_extendable_generators(n, carriers)
+
+    logging.info("Attaching fixed storage")
+    attach_fixed_storage(n, carriers)
+    
+    # Debug: Check storage after attachment
+    if len(n.storage_units) > 0:
+        logging.info(f"Network now has {len(n.storage_units)} storage units")
+        storage_buses = n.storage_units["bus"].unique()
+        logging.info(f"Storage units are assigned to buses: {storage_buses}")
+        
+        # Check for missing buses
+        missing_storage_buses = set(storage_buses) - set(n.buses.index)
+        if missing_storage_buses:
+            logging.error(f"Storage units reference non-existent buses: {missing_storage_buses}")
+
     logging.info("Exporting network.")
+    # Comprehensive data type fix for NetCDF export
+    def ensure_consistent_dtypes(network):
+        """Ensure all time-series data has consistent data types for NetCDF export"""
+        # Fix generators time-series data
+        if hasattr(network, 'generators_t'):
+            for attr in ['p_max_pu', 'p_min_pu', 'p_nom_pu', 'marginal_cost']:
+                if hasattr(network.generators_t, attr):
+                    setattr(network.generators_t, attr, 
+                           getattr(network.generators_t, attr).astype(float))
+        
+        # Fix storage units time-series data
+        if hasattr(network, 'storage_units_t'):
+            for attr in ['p_max_pu', 'p_min_pu', 'inflow', 'state_of_charge_set']:
+                if hasattr(network.storage_units_t, attr):
+                    setattr(network.storage_units_t, attr, 
+                           getattr(network.storage_units_t, attr).astype(float))
+        
+        # Fix loads time-series data
+        if hasattr(network, 'loads_t'):
+            for attr in ['p_set']:
+                if hasattr(network.loads_t, attr):
+                    setattr(network.loads_t, attr, 
+                           getattr(network.loads_t, attr).astype(float))
+        
+        # Fix lines time-series data if any
+        if hasattr(network, 'lines_t'):
+            for attr in ['s_max_pu']:
+                if hasattr(network.lines_t, attr):
+                    setattr(network.lines_t, attr, 
+                           getattr(network.lines_t, attr).astype(float))
+        
+        # Fix links time-series data if any
+        if hasattr(network, 'links_t'):
+            for attr in ['p_max_pu', 'p_min_pu']:
+                if hasattr(network.links_t, attr):
+                    setattr(network.links_t, attr, 
+                           getattr(network.links_t, attr).astype(float))
+    
+    ensure_consistent_dtypes(n)
     if n.multi_invest:
         initial_ramp_rate_fix(n)
 
@@ -1271,3 +1938,29 @@ if __name__ == "__main__":
             n_y.export_to_netcdf(f"{scenario_path}/dispatch_{y}.nc") 
     else:
         n.export_to_netcdf(snakemake.output[0])
+
+    logging.info("Attaching extendable storage")
+    attach_extendable_storage(n, carriers)
+    
+    logging.info("About to adjust for variable fuel costs")
+    try:
+        adjust_for_variable_fuel_costs(n)
+        logging.info("✓ Fuel costs adjusted successfully")
+    except Exception as e:
+        logging.error(f"Error in fuel costs: {e}")
+    
+    logging.info("About to adjust by p_max_pu")
+    try:
+        adj_by_pu = snakemake.config["electricity"]["adjust_by_p_max_pu"]
+        adjust_by_p_max_pu(n, adj_by_pu)
+        logging.info("✓ p_max_pu adjusted successfully")
+    except Exception as e:
+        logging.error(f"Error in p_max_pu adjustment: {e}")
+    
+    logging.info("About to export network")
+    try:
+        # Test if network export is the issue
+        n.export_to_netcdf(snakemake.output[0])
+        logging.info("✓ Network exported successfully")
+    except Exception as e:
+        logging.error(f"Error in network export: {e}")

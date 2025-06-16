@@ -58,9 +58,9 @@ import re
 import numpy as np
 import pandas as pd
 import pypsa
-from pypsa.linopt import get_var, write_objective, define_constraints, linexpr
+
+# Updated imports for PyPSA 0.34.1 - using linopy-based optimization
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense, expand_series
-from pypsa.optimization.common import reindex
 
 from _helpers import configure_logging, remove_leap_day, normalize_and_rename_df, assign_segmented_df_to_network, load_scenario_definition
 from add_electricity import load_extendable_parameters#, update_transmission_costs
@@ -69,6 +69,9 @@ import xarray as xr
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning) # Comment out for debugging and development
 from custom_constraints import set_operational_limits, ccgt_steam_constraints, reserve_margin_constraints, annual_co2_constraints
+from custom_constraints import add_national_capacity_constraints
+
+
 idx = pd.IndexSlice
 import os
 
@@ -77,7 +80,25 @@ import os
     Build limit constraints
 ********************************************************************************
 """
-def set_extendable_limits_global(n):
+
+
+def enhanced_set_extendable_limits_global(n, scenario_setup):
+    """
+    Enhanced version that handles both original global limits and new national constraints.
+    """
+
+    # Check if multi-region scenario
+    regions_setting = scenario_setup.get("regions", "1")
+    is_multi_region = str(regions_setting) in ["10", "34", "159"]
+    
+    if not is_multi_region:
+    # Original function
+        _set_extendable_limits_national(n)
+    else:
+    # Then set high individual limits for regional technologies
+        _set_extendable_limits_regional(n, scenario_setup)
+
+def _set_extendable_limits_national(n):
 
     ext_years = n.investment_periods if n.multi_invest else [n.snapshots[0].year]
     sense = {"max": "<=", "min": ">="}
@@ -120,6 +141,27 @@ def set_extendable_limits_global(n):
         for constraint in constraints:
             n.add("GlobalConstraint", **constraint)
 
+def set_extendable_limits_with_regional(n, scenario_setup):
+    """
+    Set high individual limits for regional technologies, 
+    since national constraints will be applied separately.
+
+    Note that this is currently geared towards 10-region setups. should be more generalised.
+    """
+    high_limit = 1e6  # 1000 GW - effectively unlimited
+    
+    # For generators
+    for gen in n.generators.query("p_nom_extendable").index:
+        # Check if this is a regional technology (has suffix)
+        if any(suffix in gen for suffix in ['_0', '_1', '_2', '_3', '_4', '_5', '_6', '_7', '_8', '_9', 
+                                          '_EC', '_FS', '_GP', '_HY', '_ZN', '_LP', '_MP', '_NW', '_NC', '_WC']):
+            n.generators.loc[gen, "p_nom_max"] = high_limit
+    
+    # For storage units
+    for su in n.storage_units.query("p_nom_extendable").index:
+        if any(suffix in su for suffix in ['_0', '_1', '_2', '_3', '_4', '_5', '_6', '_7', '_8', '_9',
+                                         '_EC', '_FS', '_GP', '_HY', '_ZN', '_LP', '_MP', '_NW', '_NC', '_WC']):
+            n.storage_units.loc[su, "p_nom_max"] = high_limit
 
 def set_extendable_limits_per_bus(n):
     ext_years = n.investment_periods if n.multi_invest else [n.snapshots[0].year]
@@ -362,18 +404,44 @@ def calc_cumulative_new_capacity(n):
     return new_capacity
 
 def solve_network(n, sns):
+    """
+    Solve network using the new Linopy-based optimization approach.
     
-    n.optimize.create_model(snapshots = sns, multi_investment_periods = n.multi_invest)
-    # Custom constraints
-    set_operational_limits(n, sns, scenario_setup)
-    ccgt_steam_constraints(n, sns, snakemake)
-    reserve_margin_constraints(n, sns, scenario_setup, snakemake)
+    This follows the PyPSA-EUR v2025.04.0 pattern:
+    1. Create the optimization model using the new API
+    2. Add custom constraints via extra_functionality 
+    3. Solve the model
+    """
     
-    param = load_extendable_parameters(n, scenario_setup, snakemake)
-    annual_co2_constraints(n, sns, param, scenario_setup)
+    def extra_functionality(n, snapshots):
+        """
+        Add custom constraints to the model.
+        This function is called after model creation but before solving.
+        """
+        # Custom constraints using the new Linopy-based approach
+        set_operational_limits(n, snapshots, scenario_setup)
+        ccgt_steam_constraints(n, snapshots, snakemake)
+        reserve_margin_constraints(n, snapshots, scenario_setup, snakemake)
+        
+        param = load_extendable_parameters(n, scenario_setup, snakemake)
+        annual_co2_constraints(n, snapshots, param, scenario_setup)
+        
+        # Add national capacity constraints for regional technologies
+        add_national_capacity_constraints(n, snapshots, scenario_setup)
+    
+    # Get solver configuration
     solver_name = snakemake.config["solving"]["solver"].pop("name")
     solver_options = snakemake.config["solving"]["solver"].copy()
-    n.optimize.solve_model(solver_name=solver_name, solver_options=solver_options)
+    
+    # Solve using the new optimize method with extra_functionality
+    # This is the PyPSA 0.34.1 way following PyPSA-EUR patterns
+    n.optimize(
+        snapshots=sns,
+        multi_investment_periods=n.multi_invest,
+        solver_name=solver_name,
+        solver_options=solver_options,
+        extra_functionality=extra_functionality
+    )
 
 if __name__ == "__main__":
     if 'snakemake' not in globals():
@@ -387,6 +455,7 @@ if __name__ == "__main__":
     logging.info("Preparing costs")
 
     n = pypsa.Network(snakemake.input[0])
+    print("Network created")
     scenario_setup = load_scenario_definition(snakemake)
     
     opts = scenario_setup["options"].split("-")
@@ -399,6 +468,7 @@ if __name__ == "__main__":
     for o in opts:
         m = re.match(r"^\d+SEG$", o, re.IGNORECASE)
         if m is not None:
+            print("Using TSAM")
             try:
                 import tsam.timeseriesaggregation as tsam
             except:
@@ -420,4 +490,3 @@ if __name__ == "__main__":
     n.statistics().to_csv(snakemake.output[1])
     calc_emissions(n, scenario_setup).to_csv(snakemake.output[2])
     #calc_cumulative_new_capacity(n).to_csv(snakemake.output[3])
-

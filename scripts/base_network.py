@@ -67,6 +67,10 @@ from _helpers import load_scenario_definition
 def create_network():
     n = pypsa.Network()
     n.name = "PyPSA-ZA"
+    
+    # Add basic carrier for AC buses to avoid carrier warnings
+    n.add("Carrier", "AC")
+    
     return n
 
 def load_buses_and_lines(n, line_config):
@@ -122,7 +126,24 @@ def line_derating(n, lines):
     return pu_max
 
 def add_components_to_network(n, buses, lines, line_config):
+    # Add carriers for buses
+    unique_carriers = buses.get("carrier", ["AC"]).unique() if "carrier" in buses.columns else ["AC"]
+    for carrier in unique_carriers:
+        if carrier not in n.carriers.index:
+            n.add("Carrier", carrier)
+    
+    # Ensure buses have carriers assigned
+    if "carrier" not in buses.columns:
+        buses["carrier"] = "AC"
+    
+    logging.info(f"Adding {len(buses)} buses to network: {buses.index.tolist()}")
+    
     n.import_components_from_dataframe(buses, "Bus")
+
+    # Verify buses were added correctly
+    logging.info(f"Network now has {len(n.buses)} buses: {n.buses.index.tolist()}")
+    
+
 #   Only a transfer model is used, with allowable efficiency losses
 #   This requires two uni-directional links between nodes as PyPSA efficiency is not bi-directional
     if len(buses) != 1:
@@ -146,7 +167,7 @@ def get_years():
     years = scenario_setup.loc["simulation_years"]
 
     if not isinstance(years, int):
-        years = list(map(int, re.split(",\s*", years)))
+        years = list(map(int, re.split(r",\s*", years)))
         if snakemake.wildcards.model_type == "dispatch":
             years = list(range(2024, np.max(years) + 1)) 
         n.multi_invest = 1

@@ -53,18 +53,20 @@ from operator import attrgetter
 import os
 import pypsa
 import re
-from _helpers import save_to_geojson, load_scenario_definition
+from _helpers import save_to_geojson, load_scenario_definition, find_right_index_col
 from base_network import get_years
 from pypsa.geo import haversine
 
 
 def load_region_data(model_regions):
-    # Load supply regions and calculate population per region
+    # Load supply regions and calculate population per region.
+    # Region possibilities include 1, 10, 34, 159
     regions = gpd.read_file(
         snakemake.input.supply_regions,
         layer=model_regions,
     ).to_crs(snakemake.config["gis"]["crs"]["distance_crs"])
 
+    # Set index to name of bus
     possible_index_cols = ['name', 'Name', 'LocalArea', 'SupplyArea']
 
     index_column = [col for col in possible_index_cols if col in regions.columns]
@@ -75,11 +77,12 @@ def load_region_data(model_regions):
         snakemake.input.gdp_pop_data,
     ).to_crs(snakemake.config["gis"]["crs"]["distance_crs"])
 
-    joined = gpd.sjoin(gdp_pop, regions, how="inner", op="within")
+    joined = gpd.sjoin(gdp_pop, regions, how="inner", predicate="within")
+
     gva_cols = ["SIC1_2016", "SIC2_2016", "SIC3_2016", "SIC4_2016", "SIC6_2016", "SIC7_2016", "SIC8_2016", "SIC9_2016"]
     pop_col = ["POP_2016"]
     for col in gva_cols + pop_col:
-        regions[col] = joined.groupby(joined.index_right).sum()[col]
+        regions[col] = joined.groupby(joined["name"]).agg({col:"sum"})[col]
     
     regions["GVA_2016"] = regions[gva_cols].sum(axis=1)
     if len(regions)>1:
@@ -95,7 +98,10 @@ def load_line_data(line_config):
     lines["build_year"] = int(scenario_setup["simulation_years"][:4]) - 1
     lines.rename(columns={'DESIGN_VOL': 'voltage'}, inplace=True)
 
-    if "+tdp" in scenario_setup.loc['transmission_grid']:
+    transmission_grid = scenario_setup.get('transmission_grid', 'existing')
+    if pd.isna(transmission_grid):
+        transmission_grid = 'existing'
+    if "+tdp" in str(transmission_grid):
         # Processing planned lines for each unique year
         planned_lines = gpd.read_file(snakemake.input.planned_lines)
         planned_lines = planned_lines.to_crs(snakemake.config["gis"]["crs"]["distance_crs"])
@@ -132,7 +138,7 @@ def load_line_data(line_config):
                 continue
             non_zero_years = row.iloc[5:]
             non_zero_years = non_zero_years[non_zero_years != 0]
-            for year in non_zero_years.index:
+            for year in non_zero_years.infdex:
                 for _ in range(int(non_zero_years[year])):                                   
                     user_lines.loc[usr_cnt,'bus0'] = row['bus0']
                     user_lines.loc[usr_cnt,'bus1'] = row['bus1']
@@ -236,7 +242,9 @@ def calc_inter_region_lines(lines, line_config):
 
 def extend_topology(lines, regions, centroids):
     # get a list of lines between all adjacent regions
-    adj_lines = gpd.sjoin(regions, regions, op='touches')['index_right'].reset_index()
+    adj_lines = gpd.sjoin(regions, regions, predicate='touches')
+    adj_lines = adj_lines["index_right"].reset_index()
+
     adj_lines.columns = ['bus0', 'bus1']
     adj_lines['bus0'], adj_lines['bus1'] = np.sort(adj_lines[['bus0', 'bus1']].values, axis=1).T # sort bus0 and bus1 alphabetically
     adj_lines = adj_lines.drop_duplicates(subset=['bus0', 'bus1'])
@@ -361,7 +369,7 @@ if __name__ == "__main__":
 
     years = scenario_setup.loc["simulation_years"]
     if not isinstance(years, int):
-        years = list(map(int, re.split(",\s*", years)))
+        years = list(map(int, re.split(r",\s*", years)))
 
     logging.info("Loading region GIS data")
     model_regions = str(scenario_setup.loc["regions"])

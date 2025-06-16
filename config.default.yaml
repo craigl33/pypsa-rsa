@@ -1,0 +1,217 @@
+version: 0.1
+
+logging:
+  level: INFO
+  format: "%(levelname)s:%(name)s:%(message)s"
+
+scenarios:
+  path: "~/showcase/pypsa-rsa/scenarios"
+  folder: "ME IRP 2024"
+  setup: "scenarios_to_run.xlsx"
+
+# # General inputs
+# data:
+#   resarea:
+#     redz: REDZ_DEA_Unpublished_Draft_2015
+#     corridors: Power_corridors
+
+gis:
+  path: "~/showcase/pypsa-rsa/gis"
+  # definition of the Coordinate Reference Systems
+  crs:
+    geo_crs: EPSG:4326  # general geographic projection, not used for metric measures. "EPSG:4326" is the standard used by OSM and google maps
+    distance_crs: EPSG:3857 # projection for distance measurements only. Possible recommended values are "EPSG:3857" (used by OSM and Google Maps)
+    area_crs: ESRI:54009  # projection for area measurements only. Possible recommended values are Global Mollweide "ESRI:54009"
+
+# Specification of relevent years for the model
+years: 
+  reference_load_year: 2018  # should be a single year at present, could be extended in the future
+  reference_weather_years: 
+    # reference years used for solar PV and wind profiles - can be single or multiple years
+    # if multiple years are specified these are applied sequencially to the simulation years
+    solar_pv: [2019, 2020, 2021]
+    solar_pv_low: [2019, 2020, 2021]
+    solar_pv_rooftop: [2019, 2020, 2021]
+    wind: [2019, 2020, 2021]
+    wind_low: [2019, 2020, 2021]
+    wind_offshore: [2019, 2020, 2021]
+    
+    # reference years from actual Eskom data published at https://www.eskom.co.za/dataportal/ 
+    # can be single or multiple years if multiple years are specified these are applied 
+    # sequencially to the simulation years
+    solar_csp: [2021] 
+    bioenergy: [2021]
+    hydro: [2021]
+    hydro_import: [2021]
+
+electricity:
+  load_disaggregation: "GVA_2016" # used to split the demand across supply regions in absence of Eskom data 
+  renewable_generators:
+    apply_grouping: false # if false individual existing plants are specified as separate generators
+    resource_profiles:
+      datasets:
+        wind: "wasa"
+        wind_offshore: "era5"
+        solar_pv: "sarah"
+        solar_pv_rooftop: "sarah"
+        bioenergy: "eskom"
+        hydro: "eskom"
+        hydro_import: "eskom"
+      single_node_profiles:
+        wind: [10, ["Eastern Cape", "Northern Cape", "Western Cape"], [1,1,1]]
+        wind_low: [10, ["Mpumalanga", "Free State", "North West", "KwaZulu Natal"], [0.5, 0.1, 0.2, 0.2]] 
+        wind_offshore: [1, ["RSA"],[1]]  
+        solar_pv: [10, ["Northern Cape", "Hydra Central"], [1,1]]
+        solar_pv_rooftop: [1, ["RSA"],[1]]  
+        solar_pv_low: [10, ["Mpumalanga", "Free State", "Limpopo", "North West"], [1, 1, 1, 1]] 
+
+
+    degradation_adj_capacity_factor: # adjust avg plant capacity factor down to account for degradation over lifetime in present value terms at 8.2% discount rate    
+      wind: 0.01
+      wind_low: 0.01
+      wind_offshore: 0.01
+      solar_pv: 0.03
+      solar_pv_low: 0.03
+      solar_pv_rooftop: 0.03
+
+  conventional_generators: # generator planned and unplanned outages are included based on Eskom data
+    apply_grouping: false # if false indivudal plants are specified as generators
+    implement_availability: true
+    ccgt_st_to_gt_ratio: 0.427 # ratio of gas turbines output to steam turbines in CCGT plants 2x540MW OCGT for 1x461MW steam turbine
+    allowable_ocgt_st_carriers: ["ocgt_gas", "ocgt_diesel", "ocgt_gas_h2_40", "ocgt_gas_h2_45", "ocgt_gas_h2_50"] # only these techs can be connected to ST
+
+  storage:
+    apply_grouping: false # if false indivudal plants are specified
+    
+  extendable_parameters:
+    defaults:
+      discount_rate: 0.082
+      co2_emissions: 0
+      max_hours: 0
+      FOM: 0
+      VOM: 0
+      heat_rate: 0
+      efficiency: 1
+      fuel: 0
+      investment: 0
+      lifetime: 20
+      min_stable_level: 0
+      ramp_limit_up: .nan
+      ramp_limit_down: .nan
+      ramp_limit_start_up: 1
+      ramp_limit_shut_down: 1
+      min_up_time: 0
+      min_down_time: 0
+      start_up_cost: 0
+      shut_down_cost: 0
+      build_phase_in: overnight
+
+  adjust_by_p_max_pu: #adjusts ramp limit and p_min_pu by outages representated by p_max_pu
+    coal: [ramp_limit_up, ramp_limit_down]
+    nuclear: [ramp_limit_up, ramp_limit_down] # leave empty to ignore #can add p_min_pu here as well
+  
+  clean_pu_profiles: true # if true, if p_max_pu is less than p_min_pu in any hour it is set to p_min_pu
+
+  operating_reserves:
+      spinning: ["coal", "nuclear", "phs", "biomass", "hydro", "hydro_import"]
+      non_spinning: ["coal", "ocgt_diesel", "ocgt_gas", "ccgt_gas", "phs", "biomass", "hydro", "hydro_import"]
+  
+  dispatch_committable_carriers:
+    existing: [coal]
+    extended: [coal, ccgt_steam]
+  
+lines:
+  threshold: 220 # only voltages >=220kV are considered in network capacity calculations
+  v_nom: 400. #changed from 380kV from PyPSA-EUR to 400kV for South Africa
+  type: 
+    400: "Al/St 240/40 4-bundle 380.0" # proxy line properties from pypsa defaults
+  s_rating:  thermal # thermal, SIL, StClair
+  thermal:
+    220: 492  #(MW) "Al/St 240/40 2-bundle 220.0" -> np.sqrt(3)*220*1.29
+    275: 921  #(MW) "Al/St 240/40 3-bundle 300.0" -> np.sqrt(3)*275*1.935
+    400: 1788 #(MW) "Al/St 240/40 4-bundle 380.0" -> np.sqrt(3)*400*2.58
+    765: 5512 #(MW) "Al/St 560/50 4-bundle 750.0" -> np.sqrt(3)*765*4.16
+  SIL: # surge impedance loading
+    220: 122  #(MW) 
+    275: 245  #(MW) 
+    400: 602  #(MW) 
+    765: 2280 #(MW) 
+  s_max_pu: 0.7 # n-1 approximation
+  n1_approx_single_lines: 0.7
+  s_nom_max: .inf
+  length_factor: 1.25
+  no_build_year: 2050 # or set as "drop" to remove lines
+  losses: 0.06 #per 1000km AC line - requires to links per line unless set to 0 then bi-directional lossless link
+  dc_type: "DC_custom_linetype"
+  #status: ["existing"] # "zero": set capacity to zero, "remove": remove, "keep": with full capacity
+  extend_topology: true # if true, lines between adjacent regions that do not exist are added for expansion
+
+links:
+  p_max_pu: 1.0
+  p_nom_max: .inf
+  under_construction: "zero" # "zero": set capacity to zero, "remove": remove, "keep": with full capacity
+  length_factor: 1.25
+
+costs:
+  # costs come from data/technology_costs.xlsx
+  discount_rate: 0.082
+  year: 2030
+  USD_to_ZAR: 18.24
+  EUR_to_ZAR: 17.83
+
+  load_shedding: 100000 #R100/kWh
+
+  emission_prices: # only used with the option Ep (emission prices)
+    # Externality costs from Integrated Energy Plan by the ZA DOE
+    co2: 0.27e+3
+    sox: 7.6e+3
+    nox: 4.5e+3
+    hg: 41484.e-6 # is also part of the excel sheet
+    particulate: 11.3e+3
+
+tsam_clustering:
+  nprocesses: 10
+  solver: "cbc" #need to use open source solver here due to parallel processing of years
+ 
+ 
+solving:
+
+  tmpdir: /tmp
+  options:
+    clip_p_max_pu: 1.e-2
+    load_shedding: true
+  solver:
+    name: highs
+    options: highs-default
+    lpflags: 4
+    crossover: 0
+    bargapstop: 1.e-6
+
+
+  solver_options:
+    highs-default:
+      # refer to https://ergo-code.github.io/HiGHS/dev/options/definitions/
+      threads: 1
+      solver: "ipm"
+      run_crossover: "off"
+      small_matrix_value: 1e-6
+      large_matrix_value: 1e9
+      primal_feasibility_tolerance: 1e-5
+      dual_feasibility_tolerance: 1e-5
+      ipm_optimality_tolerance: 1e-4
+      parallel: "on"
+      random_seed: 123
+    highs-simplex:
+      solver: "simplex"
+      parallel: "on"
+      primal_feasibility_tolerance: 1e-5
+      dual_feasibility_tolerance: 1e-5
+      random_seed: 123
+
+time:
+  clustering:
+    method: tsam
+    snapshots: 8760         # Number of snapshots to use (e.g. hourly for one year)
+    how: representative     # Can be 'centroids' or 'representative'
+    storage_weight: 0.5     # Storage importance in time clustering
+    cluster_std: true       # Use standard deviation scaling

@@ -5,7 +5,8 @@ logging:
   format: "%(levelname)s:%(name)s:%(message)s"
 
 scenarios:
-  folder: ME IRP 2024
+  path: "~/showcase/pypsa-rsa/scenarios"
+  folder: "TEST"
   setup: "scenarios_to_run.xlsx"
 
 # # General inputs
@@ -15,25 +16,25 @@ scenarios:
 #     corridors: Power_corridors
 
 gis:
-  path: "/media/pklein/1TB_SSD/Meridian Dropbox/ME Projects/03 R E S O U R C E S/Modelling data/GIS data"
+  path: "~/showcase/pypsa-rsa/gis"
   # definition of the Coordinate Reference Systems
   crs:
     geo_crs: EPSG:4326  # general geographic projection, not used for metric measures. "EPSG:4326" is the standard used by OSM and google maps
-    distance_crs: EPSG:2049 # projection for distance measurements only. Possible recommended values are "EPSG:3857" (used by OSM and Google Maps)
+    distance_crs: EPSG:3857 # projection for distance measurements only. Possible recommended values are "EPSG:3857" (used by OSM and Google Maps)
     area_crs: ESRI:54009  # projection for area measurements only. Possible recommended values are Global Mollweide "ESRI:54009"
 
 # Specification of relevent years for the model
 years: 
-  reference_load_year: 2017  # should be a single year at present, could be extended in the future
+  reference_load_year: 2018  # should be a single year at present, could be extended in the future
   reference_weather_years: 
     # reference years used for solar PV and wind profiles - can be single or multiple years
     # if multiple years are specified these are applied sequencially to the simulation years
-    solar_pv: [2017, 2018, 2019]
-    solar_pv_low: [2017, 2018, 2019]
-    solar_pv_rooftop: [2017, 2018, 2019]
-    wind: [2017, 2018, 2019]
-    wind_low: [2017, 2018, 2019]
-    wind_offshore: [2017, 2018, 2019]
+    solar_pv: [2019, 2020, 2021]
+    solar_pv_low: [2019, 2020, 2021]
+    solar_pv_rooftop: [2019, 2020, 2021]
+    wind: [2019, 2020, 2021]
+    wind_low: [2019, 2020, 2021]
+    wind_offshore: [2019, 2020, 2021]
     
     # reference years from actual Eskom data published at https://www.eskom.co.za/dataportal/ 
     # can be single or multiple years if multiple years are specified these are applied 
@@ -44,6 +45,10 @@ years:
     hydro_import: [2021]
 
 electricity:
+  # new functionality for determining how regional suffixes are done. at 10-supply region level, provincial codes are used
+  use_regional_codes: true  # Use _0, _1, _2... instead of _EC, _FS, _GP...
+  regional_allocation_method: "equal"  # For any fallback allocation needed
+  regional_tech_individual_limit: 100000  # 100 GW effectively unlimited
   load_disaggregation: "GVA_2016" # used to split the demand across supply regions in absence of Eskom data 
   renewable_generators:
     apply_grouping: false # if false individual existing plants are specified as separate generators
@@ -80,7 +85,7 @@ electricity:
     allowable_ocgt_st_carriers: ["ocgt_gas", "ocgt_diesel", "ocgt_gas_h2_40", "ocgt_gas_h2_45", "ocgt_gas_h2_50"] # only these techs can be connected to ST
 
   storage:
-    apply_grouping: false # if false indivudal plants are specified
+    apply_grouping: true # if false indivudal plants are specified
     
   extendable_parameters:
     defaults:
@@ -173,12 +178,43 @@ tsam_clustering:
   solver: "cbc" #need to use open source solver here due to parallel processing of years
  
 solving:
+
   tmpdir: /tmp
   options:
     clip_p_max_pu: 1.e-2
     load_shedding: true
   solver:
-    name: xpress
+    name: highs
+    options: highs-default
     lpflags: 4
     crossover: 0
     bargapstop: 1.e-6
+
+
+  solver_options:
+    highs-default:
+      # refer to https://ergo-code.github.io/HiGHS/dev/options/definitions/
+      threads: 8
+      solver: "ipm"
+      run_crossover: "off"
+      small_matrix_value: 1e-6
+      large_matrix_value: 1e9
+      primal_feasibility_tolerance: 1e-5
+      dual_feasibility_tolerance: 1e-5
+      ipm_optimality_tolerance: 1e-4
+      parallel: "on"
+      random_seed: 123
+    highs-simplex:
+      solver: "simplex"
+      parallel: "on"
+      primal_feasibility_tolerance: 1e-5
+      dual_feasibility_tolerance: 1e-5
+      random_seed: 123
+
+time:
+  clustering:
+    method: tsam
+    snapshots: 8760         # Number of snapshots to use (e.g. hourly for one year)
+    how: representative     # Can be 'centroids' or 'representative'
+    storage_weight: 0.5     # Storage importance in time clustering
+    cluster_std: true       # Use standard deviation scaling
