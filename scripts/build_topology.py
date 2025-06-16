@@ -59,7 +59,8 @@ from pypsa.geo import haversine
 
 
 def load_region_data(model_regions):
-    # Load supply regions and calculate population per region
+    # Load supply regions and calculate population per region.
+    # Region possibilities include 1, 10, 34, 159
     regions = gpd.read_file(
         snakemake.input.supply_regions,
         layer=model_regions,
@@ -97,7 +98,10 @@ def load_line_data(line_config):
     lines["build_year"] = int(scenario_setup["simulation_years"][:4]) - 1
     lines.rename(columns={'DESIGN_VOL': 'voltage'}, inplace=True)
 
-    if "+tdp" in scenario_setup.loc['transmission_grid']:
+    transmission_grid = scenario_setup.get('transmission_grid', 'existing')
+    if pd.isna(transmission_grid):
+        transmission_grid = 'existing'
+    if "+tdp" in str(transmission_grid):
         # Processing planned lines for each unique year
         planned_lines = gpd.read_file(snakemake.input.planned_lines)
         planned_lines = planned_lines.to_crs(snakemake.config["gis"]["crs"]["distance_crs"])

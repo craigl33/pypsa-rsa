@@ -3,6 +3,9 @@ import pandas as pd
 import pypsa
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense, expand_series, get_activity_mask
 import os
+import numpy as np
+
+
 
 from _helpers import get_investment_periods
 # from add_electricity import load_costs, update_transmission_costs

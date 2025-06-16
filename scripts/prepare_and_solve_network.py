@@ -69,6 +69,9 @@ import xarray as xr
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning) # Comment out for debugging and development
 from custom_constraints import set_operational_limits, ccgt_steam_constraints, reserve_margin_constraints, annual_co2_constraints
+from custom_constraints import add_national_capacity_constraints
+
+
 idx = pd.IndexSlice
 import os
 
@@ -77,7 +80,25 @@ import os
     Build limit constraints
 ********************************************************************************
 """
-def set_extendable_limits_global(n):
+
+
+def enhanced_set_extendable_limits_global(n, scenario_setup):
+    """
+    Enhanced version that handles both original global limits and new national constraints.
+    """
+
+    # Check if multi-region scenario
+    regions_setting = scenario_setup.get("regions", "1")
+    is_multi_region = str(regions_setting) in ["10", "34", "159"]
+    
+    if not is_multi_region:
+    # Original function
+        _set_extendable_limits_national(n)
+    else:
+    # Then set high individual limits for regional technologies
+        _set_extendable_limits_regional(n, scenario_setup)
+
+def _set_extendable_limits_national(n):
 
     ext_years = n.investment_periods if n.multi_invest else [n.snapshots[0].year]
     sense = {"max": "<=", "min": ">="}
@@ -120,6 +141,27 @@ def set_extendable_limits_global(n):
         for constraint in constraints:
             n.add("GlobalConstraint", **constraint)
 
+def set_extendable_limits_with_regional(n, scenario_setup):
+    """
+    Set high individual limits for regional technologies, 
+    since national constraints will be applied separately.
+
+    Note that this is currently geared towards 10-region setups. should be more generalised.
+    """
+    high_limit = 1e6  # 1000 GW - effectively unlimited
+    
+    # For generators
+    for gen in n.generators.query("p_nom_extendable").index:
+        # Check if this is a regional technology (has suffix)
+        if any(suffix in gen for suffix in ['_0', '_1', '_2', '_3', '_4', '_5', '_6', '_7', '_8', '_9', 
+                                          '_EC', '_FS', '_GP', '_HY', '_ZN', '_LP', '_MP', '_NW', '_NC', '_WC']):
+            n.generators.loc[gen, "p_nom_max"] = high_limit
+    
+    # For storage units
+    for su in n.storage_units.query("p_nom_extendable").index:
+        if any(suffix in su for suffix in ['_0', '_1', '_2', '_3', '_4', '_5', '_6', '_7', '_8', '_9',
+                                         '_EC', '_FS', '_GP', '_HY', '_ZN', '_LP', '_MP', '_NW', '_NC', '_WC']):
+            n.storage_units.loc[su, "p_nom_max"] = high_limit
 
 def set_extendable_limits_per_bus(n):
     ext_years = n.investment_periods if n.multi_invest else [n.snapshots[0].year]
@@ -383,6 +425,9 @@ def solve_network(n, sns):
         
         param = load_extendable_parameters(n, scenario_setup, snakemake)
         annual_co2_constraints(n, snapshots, param, scenario_setup)
+        
+        # Add national capacity constraints for regional technologies
+        add_national_capacity_constraints(n, snapshots, scenario_setup)
     
     # Get solver configuration
     solver_name = snakemake.config["solving"]["solver"].pop("name")
@@ -410,6 +455,7 @@ if __name__ == "__main__":
     logging.info("Preparing costs")
 
     n = pypsa.Network(snakemake.input[0])
+    print("Network created")
     scenario_setup = load_scenario_definition(snakemake)
     
     opts = scenario_setup["options"].split("-")
@@ -422,6 +468,7 @@ if __name__ == "__main__":
     for o in opts:
         m = re.match(r"^\d+SEG$", o, re.IGNORECASE)
         if m is not None:
+            print("Using TSAM")
             try:
                 import tsam.timeseriesaggregation as tsam
             except:

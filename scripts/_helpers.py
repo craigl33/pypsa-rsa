@@ -8,6 +8,8 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from types import SimpleNamespace
+import yaml
 
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense
 from pypsa.descriptors import get_activity_mask, get_active_assets
@@ -184,16 +186,14 @@ def load_network(import_name=None, custom_components=None):
     pypsa.Network
     """
     import pypsa
-    from pypsa.descriptors import Dict
 
     override_components = None
     override_component_attrs = None
 
     if custom_components is not None:
         override_components = pypsa.components.components.copy()
-        override_component_attrs = Dict(
-            {k: v.copy() for k, v in pypsa.components.component_attrs.items()}
-        )
+        override_component_attrs = {k: v.copy() for k, v in pypsa.components.component_attrs.items()}
+
         for k, v in custom_components.items():
             override_components.loc[k] = v["component"]
             override_component_attrs[k] = pd.DataFrame(
@@ -534,79 +534,296 @@ def get_aggregation_strategies(aggregation_strategies):
 
     return bus_strategies, generator_strategies
 
-
 def mock_snakemake(rulename, **wildcards):
     """
-    This function is expected to be executed from the "scripts"-directory of "
-    the snakemake project. It returns a snakemake.script.Snakemake object,
-    based on the Snakefile.
-
-    If a rule has wildcards, you have to specify them in **wildcards.
-
+    Create a mock Snakemake object for standalone script testing.
+    
+    This function replaces the original mock_snakemake that relied on deprecated
+    Snakemake API features (like sm.Workflow, sm.SNAKEFILE_CHOICES) that were
+    removed in newer Snakemake versions.
+    
+    The mock object mimics the structure and behavior of a real Snakemake object
+    that would be available when scripts are executed within a Snakemake workflow,
+    allowing scripts to be tested independently.
+    
     Parameters
     ----------
-    rulename: str
-        name of the rule for which the snakemake object should be generated
-    **wildcards:
-        keyword arguments fixing the wildcards. Only necessary if wildcards are
-        needed.
+    rulename : str
+        Name of the Snakemake rule to mock (e.g., "add_electricity", "base_network").
+        This determines which input/output file patterns to generate.
+    **wildcards : dict
+        Wildcard values to substitute into file paths (e.g., scenario="TEST", 
+        model_type="capacity"). These correspond to the {wildcard} placeholders
+        in Snakemake rule definitions.
+    
+    Returns
+    -------
+    FlexibleNamespace
+        Mock snakemake object with attributes:
+        - wildcards: Namespace containing wildcard values
+        - config: Loaded configuration from config.yaml
+        - input: Namespace with input file paths for the specified rule
+        - output: List or namespace with output file paths
+        - rule: Namespace with rule metadata (name)
+        - threads, resources, log, params: Standard snakemake attributes
+    
+    Examples
+    --------
+    >>> # Mock for add_electricity rule
+    >>> snakemake = mock_snakemake("add_electricity", 
+    ...                           scenario="AMBITIONS_LC2", 
+    ...                           model_type="capacity")
+    >>> print(snakemake.input.base_network)
+    networks/TEST/base/capacity-AMBITIONS_LC2.nc
+    
+    >>> # Mock for build_topology rule  
+    >>> snakemake = mock_snakemake("build_topology", scenario="CNS_G_RB_CB_10_7")
+    >>> print(snakemake.output.buses)
+    resources/TEST/buses-CNS_G_RB_CB_10_7.geojson
+    
+    Notes
+    -----
+    - Automatically creates output directories to prevent file write errors
+    - Falls back to sensible defaults if config.yaml is missing
+    - Uses FlexibleNamespace to handle dynamic attribute access gracefully
+    - File paths are constructed based on actual Snakefile rule patterns
+    
+    Compatibility
+    -------------
+    This version works with modern Snakemake versions (7.0+) that removed
+    the legacy Workflow API, while maintaining compatibility with existing
+    PyPSA-ZA script expectations.
     """
     import os
-
-    import snakemake as sm
-    from pypsa.descriptors import Dict
-    from snakemake.script import Snakemake
-
+    from pathlib import Path
+    from types import SimpleNamespace
+    import yaml
+    
+    # =================================================================
+    # SETUP: Determine project root and load configuration
+    # =================================================================
+    
     script_dir = Path(__file__).parent.resolve()
-    assert (
-        Path.cwd().resolve() == script_dir
-    ), f"mock_snakemake has to be run from the repository scripts directory {script_dir}"
-    os.chdir(script_dir.parent)
-    for p in sm.SNAKEFILE_CHOICES:
-        if os.path.exists(p):
-            snakefile = p
-            break
-    workflow = sm.Workflow(snakefile, overwrite_configfiles=[], rerun_triggers=[])
-    workflow.include(snakefile)
-    workflow.global_resources = {}
-    try:
-        rule = workflow.get_rule(rulename)
-    except Exception as exception:
-        print(
-            exception,
-            f"The {rulename} might be a conditional rule in the Snakefile.\n"
-            f"Did you enable {rulename} in the config?",
-        )
-        raise
-    dag = sm.dag.DAG(workflow, rules=[rule])
-    wc = Dict(wildcards)
-    job = sm.jobs.Job(rule, dag, wc)
-
-    def make_accessable(*ios):
-        for io in ios:
-            for i in range(len(io)):
-                io[i] = os.path.abspath(io[i])
-
-    make_accessable(job.input, job.output, job.log)
-    snakemake = Snakemake(
-        job.input,
-        job.output,
-        job.params,
-        job.wildcards,
-        job.threads,
-        job.resources,
-        job.log,
-        job.dag.workflow.config,
-        job.rule.name,
-        None,
+    
+    # Navigate to project root if currently in scripts directory
+    # This ensures relative paths in config work correctly
+    if script_dir.name == "scripts":
+        os.chdir(script_dir.parent)
+    
+    # Load project configuration from config.yaml
+    # This contains all the paths, settings, and parameters that
+    # the real Snakemake workflow would use
+    config_file = "config.yaml"
+    if os.path.exists(config_file):
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+    else:
+        # Fallback empty config if file doesn't exist
+        config = {}
+        print(f"Warning: {config_file} not found, using empty config")
+    
+    # =================================================================
+    # FLEXIBLE NAMESPACE: Dynamic attribute access
+    # =================================================================
+    
+    class FlexibleNamespace:
+        """
+        Enhanced namespace that gracefully handles missing attributes.
+        
+        Unlike SimpleNamespace, this class returns sensible defaults
+        for missing attributes instead of raising AttributeError.
+        This prevents crashes when scripts try to access attributes
+        that might not be set in all contexts.
+        """
+        
+        def __init__(self, **kwargs):
+            """Initialize with provided keyword arguments."""
+            self.__dict__.update(kwargs)
+        
+        def __getattr__(self, name):
+            """
+            Handle access to missing attributes gracefully.
+            
+            Returns appropriate defaults based on common snakemake patterns:
+            - 'log': Empty list (snakemake.log is typically a list)
+            - Others: New FlexibleNamespace (for nested attribute access)
+            """
+            if name == 'log':
+                return []  # snakemake.log is typically a list of log files
+            # Return empty namespace for nested access like snakemake.input.missing_attr
+            return FlexibleNamespace()
+        
+        def get(self, key, default=None):
+            """Dictionary-style access with default fallback."""
+            return self.__dict__.get(key, default)
+        
+        def __repr__(self):
+            """String representation for debugging."""
+            return f"FlexibleNamespace({self.__dict__})"
+    
+    # =================================================================
+    # MOCK OBJECT CREATION: Core snakemake attributes
+    # =================================================================
+    
+    # Create the main mock snakemake object
+    snakemake = FlexibleNamespace()
+    
+    # Wildcards: The {wildcard} values from the rule definition
+    # e.g., {scenario}, {model_type} become snakemake.wildcards.scenario, etc.
+    snakemake.wildcards = FlexibleNamespace(**wildcards)
+    
+    # Configuration: All settings from config.yaml
+    snakemake.config = config
+    
+    # Rule metadata
+    snakemake.rule = FlexibleNamespace(name=rulename)
+    
+    # Resource allocation (use sensible defaults)
+    snakemake.threads = 1  # Single-threaded for testing
+    snakemake.resources = FlexibleNamespace(
+        mem_mb=4000,      # 4GB memory default
+        solver_slots=1    # For optimization solvers
     )
-    # create log and output dir if not existent
-    for path in list(snakemake.log) + list(snakemake.output):
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-
-    os.chdir(script_dir)
+    
+    # Standard snakemake attributes
+    snakemake.log = []  # Log file paths (usually empty in testing)
+    snakemake.params = FlexibleNamespace()  # Rule parameters
+    
+    # Initialize input/output (will be populated based on rule)
+    snakemake.input = FlexibleNamespace()
+    snakemake.output = []
+    
+    # =================================================================
+    # RULE-SPECIFIC PATH GENERATION
+    # 
+    # This section creates realistic input/output paths for each rule
+    # based on the patterns defined in the actual Snakefile.
+    # =================================================================
+    
+    # Extract common configuration values with defaults
+    scenarios_config = config.get("scenarios", {})
+    folder = scenarios_config.get("folder", "TEST")  # Default scenario folder
+    gis_config = config.get("gis", {})
+    gis_path = gis_config.get("path", "data")  # Default GIS data path
+    
+    # Get wildcard values with defaults
+    scenario = wildcards.get("scenario", "TEST")
+    model_type = wildcards.get("model_type", "capacity")
+    
+    if rulename == "add_electricity":
+        """
+        Rule: add_electricity
+        Purpose: Add electrical components (generators, storage, load) to base network
+        
+        Inputs match the rule definition in Snakefile:
+        - base_network: The network topology from base_network rule
+        - supply_regions: Geographic regions for component mapping  
+        - load: Historical electricity demand data
+        - eskom_profiles: Utility generation profiles
+        - renewable_profiles: Wind/solar resource profiles
+        """
+        snakemake.input.base_network = f"networks/{folder}/base/{model_type}-{scenario}.nc"
+        snakemake.input.supply_regions = f"resources/{folder}/buses-{scenario}.geojson"
+        snakemake.input.load = "data/eskom_data.csv"
+        snakemake.input.eskom_profiles = "data/eskom_pu_profiles.csv"
+        snakemake.input.renewable_profiles = "pre_processing/resource_processing/renewable_profiles_updated.nc"
+        
+        # Output: Complete electrical network ready for optimization
+        snakemake.output = [f"networks/{folder}/elec/{model_type}-{scenario}.nc"]
+        
+    elif rulename == "base_network":
+        """
+        Rule: base_network  
+        Purpose: Create basic network topology (buses and transmission lines)
+        
+        Inputs: Geographic data defining network structure
+        Output: Base PyPSA network with topology only
+        """
+        snakemake.input.buses = f"resources/{folder}/buses-{scenario}.geojson"
+        snakemake.input.lines = f"resources/{folder}/lines-{scenario}.geojson"
+        snakemake.output = [f"networks/{folder}/base/{model_type}-{scenario}.nc"]
+        
+    elif rulename == "build_topology":
+        """
+        Rule: build_topology
+        Purpose: Process GIS data to create network topology files
+        
+        Inputs: Raw geographic and infrastructure data
+        Outputs: Processed topology files for network creation
+        """
+        snakemake.input.supply_regions = f"{gis_path}/supply_regions/rsa_supply_regions.gpkg"
+        snakemake.input.existing_lines = f"{gis_path}/transmission_grid/eskom_gcca_2022/Existing_Lines.shp"
+        snakemake.input.planned_lines = f"{gis_path}/transmission_grid/tdp_digitised/TDP_2023_32.shp"
+        snakemake.input.gdp_pop_data = f"{gis_path}/CSIR/Mesozones/Mesozones.shp"
+        
+        # Outputs use namespace for named access (snakemake.output.buses)
+        snakemake.output = FlexibleNamespace()
+        snakemake.output.buses = f"resources/{folder}/buses-{scenario}.geojson"
+        snakemake.output.lines = f"resources/{folder}/lines-{scenario}.geojson"
+    
+    elif rulename == "prepare_and_solve_network":
+        """
+        Rule: prepare_and_solve_network
+        Purpose: Add constraints and solve the optimization problem
+        
+        Input: Complete electrical network from add_electricity
+        Outputs: Optimized network plus statistics and emissions data
+        """
+        snakemake.input = [f"networks/{folder}/elec/capacity-{scenario}.nc"]
+        snakemake.output = [
+            f"results/{folder}/network/capacity-{scenario}.nc",      # Solved network
+            f"results/{folder}/network_stats/{scenario}.csv",       # Network statistics  
+            f"results/{folder}/emissions/{scenario}.csv"            # Emissions data
+        ]
+    
+    else:
+        """
+        Unknown rule: Provide minimal structure
+        
+        For rules not explicitly handled above, create empty but valid
+        input/output structures to prevent crashes.
+        """
+        print(f"Warning: Unknown rule '{rulename}', using minimal mock structure")
+        # Keep empty input/output as initialized above
+    
+    # =================================================================
+    # DIRECTORY CREATION: Ensure output paths exist
+    # =================================================================
+    
+    def ensure_output_directories(paths):
+        """
+        Create parent directories for all output paths.
+        
+        This prevents "directory not found" errors when scripts
+        try to write output files.
+        
+        Parameters
+        ----------
+        paths : list, FlexibleNamespace, or str
+            Output paths that need their parent directories created
+        """
+        if isinstance(paths, list):
+            # Handle list of paths (most common case)
+            for path in paths:
+                if isinstance(path, str):
+                    Path(path).parent.mkdir(parents=True, exist_ok=True)
+        elif hasattr(paths, '__dict__'):
+            # Handle namespace with multiple named outputs
+            for path in paths.__dict__.values():
+                if isinstance(path, str):
+                    Path(path).parent.mkdir(parents=True, exist_ok=True)
+        elif isinstance(paths, str):
+            # Handle single path string
+            Path(paths).parent.mkdir(parents=True, exist_ok=True)
+    
+    # Create all necessary output directories
+    ensure_output_directories(snakemake.output)
+    
+    # =================================================================
+    # RETURN: Complete mock object ready for use
+    # =================================================================
+    
     return snakemake
-
 
 
 def save_to_geojson(df, fn, crs = 'EPSG:4326'):
@@ -1074,3 +1291,31 @@ def find_right_index_col(df):
             right_index_col = df.columns[-1]
 
     return right_index_col
+
+
+# Functions for extendable technologies etc
+
+
+def get_base_carrier(carrier, is_multi_region=True):
+    """
+    Simple function to get base carrier name.
+    
+    If multi-region: remove everything after the last underscore
+    If single-region: return as-is
+    
+    Examples:
+    - 'solar_pv_rooftop_EC' -> 'solar_pv_rooftop'
+    - 'wind_onshore_low_WC' -> 'wind_onshore_low'  
+    - 'battery_GP' -> 'battery'
+    - 'gas_ccgt_0' -> 'gas_ccgt'
+    """
+    if not is_multi_region:
+        return carrier
+        
+    # For multi-region: remove the last part after underscore
+    if '_' in carrier:
+        return '_'.join(carrier.split('_')[:-1])
+    else:
+        return carrier
+    
+    

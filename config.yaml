@@ -6,7 +6,7 @@ logging:
 
 scenarios:
   path: "~/showcase/pypsa-rsa/scenarios"
-  folder: "ME IRP 2024"
+  folder: "TEST"
   setup: "scenarios_to_run.xlsx"
 
 # # General inputs
@@ -45,6 +45,10 @@ years:
     hydro_import: [2021]
 
 electricity:
+  # new functionality for determining how regional suffixes are done. at 10-supply region level, provincial codes are used
+  use_regional_codes: true  # Use _0, _1, _2... instead of _EC, _FS, _GP...
+  regional_allocation_method: "equal"  # For any fallback allocation needed
+  regional_tech_individual_limit: 100000  # 100 GW effectively unlimited
   load_disaggregation: "GVA_2016" # used to split the demand across supply regions in absence of Eskom data 
   renewable_generators:
     apply_grouping: false # if false individual existing plants are specified as separate generators
@@ -81,7 +85,7 @@ electricity:
     allowable_ocgt_st_carriers: ["ocgt_gas", "ocgt_diesel", "ocgt_gas_h2_40", "ocgt_gas_h2_45", "ocgt_gas_h2_50"] # only these techs can be connected to ST
 
   storage:
-    apply_grouping: false # if false indivudal plants are specified
+    apply_grouping: true # if false indivudal plants are specified
     
   extendable_parameters:
     defaults:
@@ -173,7 +177,6 @@ tsam_clustering:
   nprocesses: 10
   solver: "cbc" #need to use open source solver here due to parallel processing of years
  
- 
 solving:
 
   tmpdir: /tmp
@@ -191,7 +194,7 @@ solving:
   solver_options:
     highs-default:
       # refer to https://ergo-code.github.io/HiGHS/dev/options/definitions/
-      threads: 1
+      threads: 8
       solver: "ipm"
       run_crossover: "off"
       small_matrix_value: 1e-6
