@@ -1763,6 +1763,58 @@ def add_load_shedding(n, cost):
         marginal_cost = cost,
     )
 
+def validate_network(n):
+    """Run basic integrity checks on the PyPSA network object."""
+    import logging
+
+    problems_found = False
+
+    # --- Check 1: Missing carriers referenced by components ---
+    used_carriers = pd.Index(
+        n.generators.carrier.tolist()
+        + n.storage_units.carrier.tolist()
+        + n.links.carrier.tolist()
+    ).dropna().unique()
+    
+    missing_carriers = used_carriers.difference(n.carriers.index)
+
+    if not missing_carriers.empty:
+        logging.warning(f"Missing carriers in `n.carriers`: {list(missing_carriers)}")
+        problems_found = True
+
+    # --- Check 2: Components with missing or null carrier entries ---
+    for comp_name, comp in [("generators", n.generators), ("storage_units", n.storage_units), ("links", n.links)]:
+        missing = comp[comp["carrier"].isna()]
+        if not missing.empty:
+            logging.warning(f"{len(missing)} {comp_name} have missing carrier entries.")
+            problems_found = True
+
+    # --- Check 3: Buses used by components must exist in `n.buses` ---
+    for comp_name, comp in [("generators", n.generators), ("storage_units", n.storage_units), ("loads", n.loads)]:
+        if "bus" in comp.columns:
+            invalid_buses = comp.loc[~comp.bus.isin(n.buses.index)]
+            if not invalid_buses.empty:
+                logging.warning(f"{len(invalid_buses)} {comp_name} refer to missing buses.")
+                problems_found = True
+
+    # --- Check 4: Check for GlobalConstraints issues ---
+    if hasattr(n, "global_constraints") and not n.global_constraints.empty:
+        for carrier in n.global_constraints.carrier_attribute.unique():
+            if carrier not in n.carriers.index:
+                logging.warning(f"GlobalConstraint references unknown carrier: {carrier}")
+                problems_found = True
+
+    # --- Optional: Check that at least one snapshot exists ---
+    if n.snapshots.empty:
+        logging.warning("Network has no snapshots defined.")
+        problems_found = True
+
+    if not problems_found:
+        print("✅ Network passed all basic validation checks.")
+    else:
+        print("⚠️ Some problems were detected in the network definition.")
+
+    return not problems_found  # Return True if network is valid
 
 """
 ********************************************************************************
@@ -1837,8 +1889,7 @@ if __name__ == "__main__":
         logging.info("Adding load shedding")
         add_load_shedding(n, ls_cost) 
 
-    add_missing_carriers(n)
-
+ 
     
     # Debugging code
     logging.info(f"Loading base network {snakemake.input.base_network}")
@@ -1925,6 +1976,11 @@ if __name__ == "__main__":
                 if hasattr(network.links_t, attr):
                     setattr(network.links_t, attr, 
                            getattr(network.links_t, attr).astype(float))
+
+    # Check network is setup correctly
+    # This step needs to be done explicitly after loading or adding new geenrators1
+    add_missing_carriers(n)
+    validate_network(n)
     
     ensure_consistent_dtypes(n)
     if n.multi_invest:

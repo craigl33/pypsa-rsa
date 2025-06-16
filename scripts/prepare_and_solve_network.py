@@ -62,7 +62,7 @@ import pypsa
 # Updated imports for PyPSA 0.34.1 - using linopy-based optimization
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense, expand_series
 
-from _helpers import configure_logging, remove_leap_day, normalize_and_rename_df, assign_segmented_df_to_network, load_scenario_definition
+from _helpers import configure_logging, remove_leap_day, normalize_and_rename_df, assign_segmented_df_to_network, load_scenario_definition, add_missing_carriers
 from add_electricity import load_extendable_parameters#, update_transmission_costs
 from concurrent.futures import ProcessPoolExecutor
 import xarray as xr
@@ -107,22 +107,30 @@ def _set_extendable_limits_national(n):
     # Initialize an empty dictionary for global limits
     global_limits = {}
 
+    
+
     # Iterate over possible limits and try to read them from the Excel file
     for lim in ["max", "min"]:
         try:
+            # Adapted from that used in add_electricity.py
             global_limit = pd.read_excel(
                 os.path.join(scenario_setup["sub_path"], "extendable_technologies.xlsx"),
-                sheet_name=f'{lim}_total_installed',
-                index_col=[0, 1, 3, 2, 4],
-            ).loc[(scenario_setup[f"extendable_{lim}_total"], "global", slice(None), slice(None)), ext_years]
+                sheet_name=f'{lim}_total_installed')
+            
+            national_id = "RSA"
+            global_limit = global_limit.set_index(["Scenario","Location",  "Carrier"]).drop(columns=["Supply Region", "Category", "Component"])
+            scen = scenario_setup[f"extendable_{lim}_total"]
+            # Reads the national constraints for all carriers across all given years
+            global_limit = global_limit.loc[(scen, national_id, slice(None)), ext_years]
+            global_limit.index = global_limit.index.droplevel(["Scenario", "Location"])
+
             # If successfully read, add to the global_limits dictionary
             global_limits[lim] = global_limit
-        except Exception:
-            logging.warning(f"No global {lim} limit found in model file. Skipping.")
+        except Exception as e:
+            logging.warning(f"Error: {e} occured")
 
     # Now global_limits only contains keys for successfully read sheets
     for lim, global_limit in global_limits.items():
-        global_limit.index = global_limit.index.droplevel([0, 1, 2, 3])
         global_limit = global_limit.loc[~(global_limit == ignore[lim]).all(axis=1)]
         constraints = [
             {
@@ -163,7 +171,11 @@ def set_extendable_limits_with_regional(n, scenario_setup):
                                          '_EC', '_FS', '_GP', '_HY', '_ZN', '_LP', '_MP', '_NW', '_NC', '_WC']):
             n.storage_units.loc[su, "p_nom_max"] = high_limit
 
-def set_extendable_limits_per_bus(n):
+def set_extendable_limits_explicit_per_bus(n):
+    """
+    Legacy function for setting extendable limits per explicit technology and per bus
+    """
+    
     ext_years = n.investment_periods if n.multi_invest else [n.snapshots[0].year]
     ignore = {"max": "unc", "min": 0}
 
@@ -449,12 +461,13 @@ if __name__ == "__main__":
         snakemake = mock_snakemake(
             'prepare_and_solve_network', 
             **{
-                'scenario':'LC_UNC',
+                'scenario':'TEST',
             }
         )
     logging.info("Preparing costs")
 
     n = pypsa.Network(snakemake.input[0])
+    add_missing_carriers(n)
     print("Network created")
     scenario_setup = load_scenario_definition(snakemake)
     
@@ -479,9 +492,11 @@ if __name__ == "__main__":
             break
 
     logging.info("Setting global and regional build limits")
-    if len(n.buses) != 1: #covered under single bus limits
-        set_extendable_limits_global(n) 
-    set_extendable_limits_per_bus(n)
+    if len(n.buses) != 1: # Checks whether national limits need to be set across multi-regional extendable technologies
+        _set_extendable_limits_national(n) 
+    else:
+        # Legacy function for setting per bus in extendable_technologies.xlsx
+        set_extendable_limits_explicit_per_bus(n)
 
     logging.info("Solving network")
     solve_network(n, n.snapshots)
