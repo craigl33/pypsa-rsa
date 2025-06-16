@@ -632,8 +632,6 @@ def generate_extendable_wind_solar_profiles(n, gens, snapshots, carriers, pu_pro
     else:
         bus_mapping = INDEX_TO_NAME
 
-    # Resource area mapping
-    RESOURCE_AREA_MAPPING = {"low": 0, "medium": 1, "high": 2, "redz": 3}
     
     # Process each carrier
     for carrier in renewable_carriers:
@@ -702,8 +700,7 @@ def generate_extendable_wind_solar_profiles(n, gens, snapshots, carriers, pu_pro
             ref_years = reference_weather_years.get(weather_key, [2019])
             
             # Get resource area setting
-            resource_area = scenario_setup.get("resource_area", "medium")
-            area_idx = RESOURCE_AREA_MAPPING.get(resource_area, 1)
+            resource_area = scenario_setup.get("resource_area")
             
             # Process each target bus
             for bus in target_buses:
@@ -718,10 +715,12 @@ def generate_extendable_wind_solar_profiles(n, gens, snapshots, carriers, pu_pro
                         continue
                     
                     # Extract time series for this bus and resource area
-                    if 'intra_region' in data.dims and area_idx < data.sizes['intra_region']:
-                        pu_ref = data.sel(bus=bus, intra_region=area_idx).to_pandas()
-                    else:
-                        pu_ref = data.sel(bus=bus).mean('intra_region').to_pandas()
+                    if 'intra_region' in data.dims:
+                        try:
+                            pu_ref = data.sel(bus=bus, intra_region=resource_area).to_pandas()
+                        except KeyError:
+                            log.warning(f"Resource area {resource_area} not found. Using mean value")
+                            pu_ref = data.sel(bus=bus).mean('intra_region').to_pandas()
                     
                     # Convert time coordinates
                     if not isinstance(pu_ref.index, pd.DatetimeIndex):
