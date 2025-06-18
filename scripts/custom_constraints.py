@@ -472,6 +472,7 @@ def annual_co2_constraints(n, sns, param, scenario_setup):
         logging.warning(f"Error creating CO2 constraints: {e}")
         return
     
+
 def add_national_capacity_constraints(n, sns, scenario_setup):
     """
     Add custom constraints that enforce national capacity limits

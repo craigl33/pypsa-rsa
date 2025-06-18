@@ -173,9 +173,15 @@ costs:
     hg: 41484.e-6 # is also part of the excel sheet
     particulate: 11.3e+3
 
+# New  functionality for clustering time series data
+# This is used to reduce the number of time steps in the model
 tsam_clustering:
   nprocesses: 10
+  segments: 792 # Number of segments to use (e.g. hourly for one year)
   solver: "cbc" #need to use open source solver here due to parallel processing of years
+  how: representative     # Can be 'centroids' or 'representative'
+  storage_weight: 0.5     # Storage importance in time clustering
+  cluster_std: true       # Use standard deviation scaling
  
 solving:
 
@@ -210,11 +216,3 @@ solving:
       primal_feasibility_tolerance: 1e-5
       dual_feasibility_tolerance: 1e-5
       random_seed: 123
-
-time:
-  clustering:
-    method: tsam
-    snapshots: 8760         # Number of snapshots to use (e.g. hourly for one year)
-    how: representative     # Can be 'centroids' or 'representative'
-    storage_weight: 0.5     # Storage importance in time clustering
-    cluster_std: true       # Use standard deviation scaling

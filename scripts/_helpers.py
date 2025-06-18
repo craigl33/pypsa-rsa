@@ -69,14 +69,27 @@ List of cost related functions
 
 
 def add_missing_carriers(n):
-    all_carriers = (
-        list(n.generators.carrier.unique()) 
-        + list(n.storage_units.carrier.unique()) 
-        + list(n.links.carrier.unique())
-    )
+    # Collect all carriers used by components
+    all_carriers = pd.Index(
+        n.generators.carrier.tolist()
+        + n.storage_units.carrier.tolist()
+        + n.links.carrier.tolist()
+    ).dropna().unique()
 
-    missing_carriers = pd.Index(all_carriers).difference(n.carriers.index)
-    n.madd("Carrier", missing_carriers)
+    # Find which are missing from n.carriers
+    missing_carriers = all_carriers.difference(n.carriers.index)
+
+    # Add them with empty/default attributes
+    for carrier in missing_carriers:
+        n.carriers.loc[carrier] = {
+            "co2_emissions": 0.0,
+            "nice_name": carrier.replace("_", " ").title(),
+            "color": "#cccccc",  # or any color
+            "max_growth": float("inf"),
+            "max_relative_growth": 0.0
+        }
+
+    return n
 
 """
 List of IO functions
@@ -86,7 +99,6 @@ List of IO functions
     - read_csv_nafix -> 
     - to_csv_nafix -> 
 """
-
 
 def sets_path_to_root(root_directory_name):
     """

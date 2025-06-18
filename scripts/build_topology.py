@@ -360,7 +360,7 @@ if __name__ == "__main__":
         snakemake = mock_snakemake(
             'build_topology', 
             **{
-                'scenario':'CNS_G_RB_CB_10_7',
+                'scenario':'TEST',
             }
         )
     logging.info("Loading scenario configuration")

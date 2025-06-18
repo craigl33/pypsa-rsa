@@ -109,7 +109,11 @@ def set_snapshots(n, years):
 def set_investment_periods(n, years):
     n.investment_periods = years
     delta_years = list(np.diff(years))
-    n.investment_period_weightings["years"] = delta_years + [delta_years[-1]]
+    try:
+        n.investment_period_weightings["years"] = delta_years + [delta_years[-1]]
+    except IndexError:
+        logging.info("Only a single year is defined. Setting investment period weightings to 1 for that year.")
+        n.investment_period_weightings["years"] = [1]
     T = 0
     for period, nyears in n.investment_period_weightings.years.items():
         discounts = [(1 / (1 + snakemake.config["costs"]["discount_rate"]) ** t) for t in range(T, T + nyears)]
@@ -183,7 +187,7 @@ if __name__ == "__main__":
             "base_network", 
             **{
                 "model_type":"capacity",
-                "scenario":"CNS_G_RB_CB_10_7",
+                "scenario":"TEST",
             }
         )
     line_config = snakemake.config["lines"]
