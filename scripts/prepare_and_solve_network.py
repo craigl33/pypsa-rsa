@@ -987,7 +987,6 @@ def apply_tsam_to_pypsa_network(n, period_type='total', typical_periods=36,
     
     return n_clustered
 
-
 def compare_networks_before_after_tsam(n_original, n_clustered):
     """
     Compare original and TSAM-clustered networks

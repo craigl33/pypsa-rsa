@@ -297,7 +297,6 @@ def update_p_nom_max(n):
 List of PyPSA network statistics functions
 
 """
-
 def aggregate_capacity(n):
     capacity=pd.DataFrame(
         np.nan,index=np.append(n.generators.carrier.unique(),n.storage_units.carrier.unique()),
@@ -527,7 +526,6 @@ def progress_retrieve(url, file, data=None, disable_progress=False, roundto=1.0)
         data = urllib.parse.urlencode(data).encode()
 
     urllib.request.urlretrieve(url, file, reporthook=dlProgress, data=data)
-
 
 def get_aggregation_strategies(aggregation_strategies):
     """
@@ -788,6 +786,46 @@ def mock_snakemake(rulename, **wildcards):
             f"results/{folder}/emissions/{scenario}.csv"            # Emissions data
         ]
     
+    elif rulename == "create_dispatch_networks":
+        """
+        Rule: create_dispatch_networks
+        Purpose: Create individual yearly dispatch networks from capacity expansion results
+        
+        Input: Solved capacity expansion network from capacity expansion
+        Outputs: Individual dispatch networks for each year
+        """
+        snakemake.input = FlexibleNamespace()
+        snakemake.input.capacity_network = f"results/{folder}/network/capacity-{scenario}.nc"
+        
+        # Get dispatch years from config
+        dispatch_years = snakemake.config.get("dispatch_years", [2030, 2040, 2050])
+        
+        # Create output paths for each year
+        snakemake.output = [
+            f"networks/{folder}/elec/{scenario}/dispatch-{year}.nc" 
+            for year in dispatch_years
+        ]
+
+    elif rulename == "solve_network_dispatch":
+        """
+        Rule: solve_network_dispatch
+        Purpose: Solve operational dispatch for a specific year using optimized capacities
+        
+        Inputs: Dispatch network for specific year + optimized network stats
+        Outputs: Dispatch results and statistics for the year
+        """
+        # Get year from wildcards - you'll need to pass this in the mock call
+        year = wildcards.get("year", 2030)  # Default to 2030 if not specified
+        
+        snakemake.input = FlexibleNamespace()
+        snakemake.input.dispatch_network = f"networks/{folder}/elec/{scenario}/dispatch-{year}.nc"
+        snakemake.input.optimised_network_stats = f"results/{folder}/network_stats/{scenario}.csv"
+        
+        # Outputs
+        snakemake.output = FlexibleNamespace()
+        snakemake.output.dispatch_results = f"results/{folder}/dispatch/{scenario}/dispatch_{year}.nc"
+        snakemake.output.dispatch_stats = f"results/{folder}/dispatch_stats/{scenario}/dispatch_{year}.csv"
+        
     else:
         """
         Unknown rule: Provide minimal structure
@@ -795,7 +833,7 @@ def mock_snakemake(rulename, **wildcards):
         For rules not explicitly handled above, create empty but valid
         input/output structures to prevent crashes.
         """
-        print(f"Warning: Unknown rule '{rulename}', using minimal mock structure")
+        print(f"⚠️  WARNING: Unknown rule '{rulename}', using minimal mock structure")
         # Keep empty input/output as initialized above
     
     # =================================================================
@@ -837,7 +875,6 @@ def mock_snakemake(rulename, **wildcards):
     
     return snakemake
 
-
 def save_to_geojson(df, fn, crs = 'EPSG:4326'):
     if os.path.exists(fn):
         os.unlink(fn)  # remove file if it exists
@@ -850,7 +887,6 @@ def save_to_geojson(df, fn, crs = 'EPSG:4326'):
     else:
         # save file
         df.to_file(fn, driver="GeoJSON",crs=crs)
-
 
 def read_geojson(fn):
     # if the file is non-zero, read the geodataframe and return it
@@ -1202,6 +1238,42 @@ def single_year_network_copy(
 
 
 
+def single_year_network_copy_with_tsam_reconstruction(n_capacity, snapshots=None, investment_periods=None):
+    """
+    Create single year network copy that can handle TSAM-clustered source networks
+    """
+    
+    if snapshots is None:
+        snapshots = n_capacity.snapshots
+    
+    # Check if source network is TSAM-clustered
+    if hasattr(n_capacity, '_tsam_time_mapping'):
+        print("🔄 Source network is TSAM-clustered, reconstructing full chronology...")
+        
+        # Reconstruct full time series data
+        reconstructed_data = reconstruct_full_chronology_from_tsam(n_capacity, snapshots)
+        
+        # Create new network using regular copy method
+        n_dispatch = n_capacity.copy(with_time=False)
+        n_dispatch.set_snapshots(snapshots)
+        
+        # Apply reconstructed time series
+        for component_name, component_data in reconstructed_data.items():
+            if hasattr(n_dispatch, component_name):
+                component_t = getattr(n_dispatch, component_name)
+                for attr_name, ts_data in component_data.items():
+                    if hasattr(component_t, attr_name):
+                        setattr(component_t, attr_name, ts_data)
+        
+        # Create appropriate snapshot weightings
+        n_dispatch._snapshot_weightings = pd.Series(1.0, index=snapshots)
+        
+        return n_dispatch
+    
+    else:
+        # Use regular copy method for non-TSAM networks
+        return single_year_network_copy(n_capacity, snapshots, investment_periods)
+
 # Not needed once PyPSA main is updated
 def single_year_network_copy(
     n,
@@ -1219,94 +1291,218 @@ def single_year_network_copy(
 
     Parameters
     ----------
-    with_time : boolean, default True
-        Copy snapshots and time-varying network.component_names_t data too.
     snapshots : list or index slice
         A list of snapshots to copy, must be a subset of
         network.snapshots, defaults to network.snapshots
+    investment_periods : list
+        Investment periods to copy
     ignore_standard_types : boolean, default False
         Ignore the PyPSA standard types.
 
     Examples
     --------
-    >>> network_copy = network.copy()
+    >>> network_copy = single_year_network_copy(network, snapshots=network.snapshots[:100])
     """
-    (
-        override_components,
-        override_component_attrs,
-    ) = n._retrieve_overridden_components()
+    
+    # For PyPSA 0.34.1+, create network without override components retrieval
+    try:
+        # Try the old method first for backwards compatibility
+        (
+            override_components,
+            override_component_attrs,
+        ) = n._retrieve_overridden_components()
+        
+        network = n.__class__(
+            ignore_standard_types=ignore_standard_types,
+            override_components=override_components,
+            override_component_attrs=override_component_attrs,
+        )
+    except AttributeError:
+        # New PyPSA version - create network without overrides
+        network = n.__class__(ignore_standard_types=ignore_standard_types)
 
-    network = n.__class__(
-        ignore_standard_types=ignore_standard_types,
-        override_components=override_components,
-        override_component_attrs=override_component_attrs,
-    )
-
+    # Copy all components
     other_comps = sorted(n.all_components - {"Bus", "Carrier"})
     for component in n.iterate_components(["Bus", "Carrier"] + other_comps):
-        df = component.df
-        # drop the standard types to avoid them being read in twice
+        df = component.df.copy()
+        
+        # Drop standard types to avoid duplication
         if (
             not ignore_standard_types
             and component.name in n.standard_type_components
+            and hasattr(network.components[component.name], "standard_types")
         ):
-            df = component.df.drop(
-                network.components[component.name]["standard_types"].index
-            )
-        if investment_periods is not None:
-            df = df.loc[n.get_active_assets(component.name, investment_periods)]
-        import_components_from_dataframe(network, df, component.name)
+            try:
+                df = df.drop(network.components[component.name]["standard_types"].index, errors='ignore')
+            except (KeyError, AttributeError):
+                # If standard_types doesn't exist or other issues, continue
+                pass
+        
+        # Filter by investment periods if specified
+        if investment_periods is not None and hasattr(n, 'get_active_assets'):
+            try:
+                active_assets = n.get_active_assets(component.name, investment_periods)
+                df = df.loc[active_assets]
+            except (AttributeError, KeyError):
+                # If get_active_assets doesn't work, use all assets
+                pass
+        
+        # Import components
+        try:
+            from pypsa.io import import_components_from_dataframe
+            import_components_from_dataframe(network, df, component.name)
+        except ImportError:
+            # Alternative import for different PyPSA versions
+            network.import_components_from_dataframe(df, component.name)
 
+    # Set snapshots FIRST before setting weightings
     if snapshots is None:
         snapshots = n.snapshots
+    
+    # Handle investment_periods properly - check if it's a list/array or pandas object
     if investment_periods is None:
-        investment_periods = n.investment_period_weightings.index
+        if hasattr(n, 'investment_period_weightings'):
+            investment_periods = getattr(n.investment_period_weightings, 'index', [])
+        else:
+            investment_periods = []
+    
     network.set_snapshots(snapshots)
-    if not investment_periods.empty:
-        network.set_investment_periods(investment_periods)
+    
+    # Set investment periods if they exist and are not empty
+    # Check for both list and pandas object emptiness
+    periods_not_empty = False
+    if investment_periods is not None:
+        if isinstance(investment_periods, (list, tuple)):
+            periods_not_empty = len(investment_periods) > 0
+        elif hasattr(investment_periods, 'empty'):
+            periods_not_empty = not investment_periods.empty
+        elif hasattr(investment_periods, '__len__'):
+            periods_not_empty = len(investment_periods) > 0
+    
+    if hasattr(n, 'investment_periods') and periods_not_empty:
+        try:
+            network.set_investment_periods(investment_periods)
+        except AttributeError:
+            # If method doesn't exist, set directly
+            network.investment_periods = investment_periods
+
+    # Handle snapshot weightings - this is the key fix
+    try:
+        # Try to copy existing weightings that match our snapshots
+        if hasattr(n, 'snapshot_weightings') and not n.snapshot_weightings.empty:
+            # Check if snapshots exist in original weightings
+            existing_snapshots = snapshots.intersection(n.snapshot_weightings.index)
+            
+            if len(existing_snapshots) > 0:
+                # Copy existing weightings for overlapping snapshots
+                network.snapshot_weightings = n.snapshot_weightings.loc[existing_snapshots].copy()
+                
+                # For missing snapshots, create default weightings
+                missing_snapshots = snapshots.difference(existing_snapshots)
+                if len(missing_snapshots) > 0:
+                    # Get typical weighting value from existing data
+                    if hasattr(n.snapshot_weightings, 'values'):
+                        typical_weight = n.snapshot_weightings.iloc[0] if len(n.snapshot_weightings) > 0 else 1.0
+                    else:
+                        typical_weight = 1.0
+                    
+                    # Create weightings for missing snapshots
+                    missing_weightings = pd.Series(typical_weight, index=missing_snapshots)
+                    
+                    # Combine existing and missing weightings
+                    all_weightings = pd.concat([network.snapshot_weightings, missing_weightings])
+                    all_weightings = all_weightings.loc[snapshots]  # Ensure correct order
+                    
+                    # Set the combined weightings
+                    network._snapshot_weightings = all_weightings
+            else:
+                # No overlapping snapshots - create default weightings
+                network._snapshot_weightings = pd.Series(1.0, index=snapshots)
+        else:
+            # No existing weightings - create default
+            network._snapshot_weightings = pd.Series(1.0, index=snapshots)
+            
+    except Exception as e:
+        # If all else fails, create minimal default weightings
+        logging.warning(f"Could not copy snapshot weightings: {e}. Creating default weightings.")
+        network._snapshot_weightings = pd.Series(1.0, index=snapshots)
+
+    # Copy time-series data
     for component in n.iterate_components():
         pnl = getattr(network, component.list_name + "_t")
         for k in component.pnl.keys():
-            if component.name in ["Generator", "Link", "StorageUnit", "Store"]:
-                active = n.df(component.name)[n.get_active_assets(component.name, investment_periods)].index
-                active = component.pnl[k].columns.intersection(active)
-                pnl[k] = component.pnl[k].loc[snapshots,active].copy()
-            else:
-                pnl[k] = component.pnl[k].loc[snapshots].copy()
-    network.snapshot_weightings = n.snapshot_weightings.loc[snapshots].copy()
-    network.investment_period_weightings = (
-        n.investment_period_weightings.loc[investment_periods].copy()
-    )
+            try:
+                if component.name in ["Generator", "Link", "StorageUnit", "Store"]:
+                    if hasattr(n, 'get_active_assets') and periods_not_empty:
+                        try:
+                            active = n.df(component.name)[n.get_active_assets(component.name, investment_periods)].index
+                            active = component.pnl[k].columns.intersection(active)
+                            
+                            # For time-series data, we need to handle the mismatch differently
+                            # Copy what we can and interpolate/extend for missing periods
+                            original_data = component.pnl[k]
+                            if not original_data.empty:
+                                # Create empty DataFrame with new snapshots
+                                new_data = pd.DataFrame(index=snapshots, columns=active)
+                                
+                                # Copy overlapping data
+                                overlapping_snapshots = snapshots.intersection(original_data.index)
+                                if len(overlapping_snapshots) > 0:
+                                    new_data.loc[overlapping_snapshots] = original_data.loc[overlapping_snapshots, active]
+                                
+                                # Fill missing data by forward filling or using last available data
+                                new_data = new_data.fillna(method='ffill').fillna(method='bfill').fillna(0)
+                                
+                                pnl[k] = new_data
+                            
+                        except (AttributeError, KeyError):
+                            # Fallback: skip this time series
+                            continue
+                    else:
+                        # Handle time series without investment periods
+                        original_data = component.pnl[k]
+                        if not original_data.empty:
+                            new_data = pd.DataFrame(index=snapshots, columns=original_data.columns)
+                            overlapping_snapshots = snapshots.intersection(original_data.index)
+                            if len(overlapping_snapshots) > 0:
+                                new_data.loc[overlapping_snapshots] = original_data.loc[overlapping_snapshots]
+                            new_data = new_data.fillna(method='ffill').fillna(method='bfill').fillna(0)
+                            pnl[k] = new_data
+                else:
+                    # Handle non-generator components
+                    original_data = component.pnl[k]
+                    if not original_data.empty:
+                        new_data = pd.DataFrame(index=snapshots, columns=original_data.columns)
+                        overlapping_snapshots = snapshots.intersection(original_data.index)
+                        if len(overlapping_snapshots) > 0:
+                            new_data.loc[overlapping_snapshots] = original_data.loc[overlapping_snapshots]
+                        new_data = new_data.fillna(method='ffill').fillna(method='bfill').fillna(0)
+                        pnl[k] = new_data
+                        
+            except (KeyError, IndexError) as e:
+                # Skip if data doesn't exist for these snapshots
+                logging.debug(f"Skipping time series {component.name}.{k}: {e}")
+                continue
 
-    # catch all remaining attributes of network
+    # Copy investment period weightings
+    if hasattr(n, 'investment_period_weightings') and periods_not_empty:
+        try:
+            if isinstance(investment_periods, (list, tuple)):
+                # Convert list to pandas Index if needed
+                investment_periods_index = pd.Index(investment_periods)
+            else:
+                investment_periods_index = investment_periods
+            network.investment_period_weightings = n.investment_period_weightings.loc[investment_periods_index].copy()
+        except (KeyError, AttributeError):
+            pass
+
+    # Copy remaining attributes
     for attr in ["name", "srid"]:
-        setattr(network, attr, getattr(n, attr))
+        if hasattr(n, attr):
+            setattr(network, attr, getattr(n, attr))
 
     return network
-
-def find_right_index_col(df):
-    """ 
-    Function to find the right index column name that comes from newer versions of GeoPandas
-    
-    """
-
-    if 'index_right' in df.columns:
-        right_index_col = 'index_right'
-    else:
-        # Find the right index column (look for index columns that aren't index_left)
-        index_cols = [col for col in df.columns if col.startswith('index_')]
-        right_index_cols = [col for col in index_cols if col != 'index_left']
-        if right_index_cols:
-            right_index_col = right_index_cols[0]
-        else:
-            # Fallback: use the last column or a reasonable guess
-            right_index_col = df.columns[-1]
-
-    return right_index_col
-
-
 # Functions for extendable technologies etc
-
 
 def get_base_carrier(carrier, is_multi_region=True):
     """

@@ -77,6 +77,12 @@ def get_min_stable_level(n, model_file, model_setup, existing_carriers, extended
 def set_max_status(n, sns, p_max_pu):
 
     # init period = 100h to let model stabilise status
+    """
+    Set a constraint on the status of generators to not exceed the maximum availability
+    given by p_max_pu. The first 100 hours of the simulation are considered as an
+    initialization period, where the generators are fully available. This is done to
+    avoid the model from crashing if the generators are not available at all.
+    """
     if sns[0] == n.snapshots[0]:
         init_periods=100
         n.generators_t.p_max_pu.loc[
@@ -198,15 +204,22 @@ def set_existing_committable(n, sns, model_file, model_setup, config):
 if __name__ == "__main__":
     if 'snakemake' not in globals():
         from _helpers import mock_snakemake
+        # snakemake = mock_snakemake(
+        #     'solve_network_dispatch', 
+        #     **{
+        #         'model_file':'TEST',
+        #         'regions':'10',
+        #         'resarea':'redz',
+        #         'll':'copt',
+        #         'opts':'LC',
+        #         'years':'2024',
+        #     }
+        # )
+
         snakemake = mock_snakemake(
             'solve_network_dispatch', 
             **{
-                'model_file':'TEST',
-                'regions':'1',
-                'resarea':'redz',
-                'll':'copt',
-                'opts':'LC',
-                'years':'2024',
+                'scenario':'TEST',
             }
         )
     n = pypsa.Network(snakemake.input.network)

@@ -1647,48 +1647,49 @@ def attach_extendable_storage(n, carriers):
         logging.info("Continuing without extendable storage")
         
 """
+
 ********************************************************************************
     Transmission network functions  
 ********************************************************************************
 """
 
-# def convert_lines_to_links(n):
-#     """
-#     Convert AC lines to DC links for multi-decade optimisation with line
-#     expansion.
+def convert_lines_to_links(n):
+    """
+    Convert AC lines to DC links for multi-decade optimisation with line
+    expansion.
 
-#     Losses of DC links are assumed to be 3% per 1000km
-#     """
-#     years = get_investment_periods(n.snapshots, n.multi_invest)
+    Losses of DC links are assumed to be 3% per 1000km
+    """
+    years = get_investment_periods(n.snapshots, n.multi_invest)
 
-#     logger.info("Convert AC lines to DC links to perform multi-decade optimisation.")
-#     extendable = False
-#     p_nom = n.lines.s_nom
+    logger.info("Convert AC lines to DC links to perform multi-decade optimisation.")
+    extendable = False
+    p_nom = n.lines.s_nom
 
-#     for y in years:
-#         n.madd(
-#             "Link",
-#             n.lines.index + "_" + str(y),
-#             bus0 = n.lines.bus0,
-#             bus1 = n.lines.bus1,
-#             p_nom = p_nom,
-#             p_nom_min = n.lines.s_nom,
-#             p_min_pu = -1,
-#             lifetime = 100,
-#             efficiency = 1 - 0.03 * n.lines.length / 1000,
-#             marginal_cost = 0,
-#             length = n.lines.length,
-#             capital_cost = n.lines.capital_cost,
-#             p_nom_extendable = extendable,
-#         )
-#         if y == years[0]:
-#             extendable = True
-#             p_nom = 0
+    for y in years:
+        n.madd(
+            "Link",
+            n.lines.index + "_" + str(y),
+            bus0 = n.lines.bus0,
+            bus1 = n.lines.bus1,
+            p_nom = p_nom,
+            p_nom_min = n.lines.s_nom,
+            p_min_pu = -1,
+            lifetime = 100,
+            efficiency = 1 - 0.03 * n.lines.length / 1000,
+            marginal_cost = 0,
+            length = n.lines.length,
+            capital_cost = n.lines.capital_cost,
+            p_nom_extendable = extendable,
+        )
+        if y == years[0]:
+            extendable = True
+            p_nom = 0
 
-#     # Remove AC lines
-#     logger.info("Removing AC lines")
-#     lines_rm = n.lines.index
-#     n.mremove("Line", lines_rm)
+    # Remove AC lines
+    logger.info("Removing AC lines")
+    lines_rm = n.lines.index
+    n.mremove("Line", lines_rm)
 
 
 
