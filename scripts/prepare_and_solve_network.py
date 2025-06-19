@@ -442,12 +442,17 @@ def solve_network(n, sns):
         # Add national capacity constraints for regional technologies
         add_national_capacity_constraints(n, snapshots, scenario_setup)
     
-    # Get solver configuration
-    solver_name = snakemake.config["solving"]["solver"].pop("name")
-    solver_options = snakemake.config["solving"]["solver"].copy()
-    
+    solver_config = snakemake.config["solving"]
+    solver_name = solver_config['solver']["name"]  # should be a string, e.g., "gurobi"
+    solver_options = solver_config["solver_options"][solver_config['solver'].get("options", {})] # should be a dict
     # Solve using the new optimize method with extra_functionality
     # This is the PyPSA 0.34.1 way following PyPSA-EUR patterns
+
+    logging.info("solver_name =", solver_name, type(solver_name))
+    logging.info("solver_options =", solver_options, type(solver_options))
+    for k, v in solver_options.items():
+        logging.info(f"Option key: {k}, value: {v}, type: {type(v)}")
+
     n.optimize(
         snapshots=sns,
         multi_investment_periods=n.multi_invest,
@@ -981,7 +986,6 @@ def apply_tsam_to_pypsa_network(n, period_type='total', typical_periods=36,
     print(f"    Reduction factor: {len(n.snapshots)/len(n_clustered.snapshots):.1f}x")
     
     return n_clustered
-
 
 def compare_networks_before_after_tsam(n_original, n_clustered):
     """
@@ -2000,15 +2004,22 @@ if __name__ == "__main__":
     # Use your existing solve_network function
     solve_network(n_clustered, n_clustered.snapshots)
 
+    logging.info("Network solved")
+    # Export results
+    n_clustered.export_to_netcdf(snakemake.output[0])
+    n_clustered.statistics().to_csv(snakemake.output[1])
+    calc_emissions(n_clustered, scenario_setup).to_csv(snakemake.output[2])
 
-    print(n.model.constraints.keys())
-    print(n.model.variables.keys()) 
-    print(n.loads_t.p_set.sum().sum())  # Total demand
-    print(n.generators.p_nom_opt.sum())  # Total supply capacity
-    
-    n.consistency_check()
+    # Print summary stats
+    print("Total demand:", n.loads_t.p_set.sum().sum())
+    print("Total supply capacity:", n.generators.p_nom_opt.sum())
 
-    n.export_to_netcdf(snakemake.output[0])
-    n.statistics().to_csv(snakemake.output[1])
-    calc_emissions(n, scenario_setup).to_csv(snakemake.output[2])
-    #calc_cumulative_new_capacity(n).to_csv(snakemake.output[3])
+    # Run consistency check
+    n_clustered.consistency_check()
+
+    # Only access n.model if it exists
+    if hasattr(n, "model"):
+        print("Model constraints:", list(n_clustered.model.constraints.keys())[:5])  # show just a few
+        print("Model variables:", list(n_clustered.model.variables.keys())[:5])
+    else:
+        print("No model found. Use store_model=True if you want access to it.")

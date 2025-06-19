@@ -35,7 +35,6 @@ gis_path = Path(config["gis"]["path"]).expanduser().resolve()
 config["gis"]["path"] = str(gis_path)
 print(f"Resolved GIS path to: {config['gis']['path']}")
 
-
 rule all:
     input:
         "results/solve_all_scenarios_complete"
@@ -93,42 +92,49 @@ rule prepare_and_solve_network:
     script:
         "scripts/prepare_and_solve_network.py"
 
-rule cluster_time:
+rule create_dispatch_networks:
+    """
+    Create individual yearly dispatch networks from capacity expansion results
+    """
     input:
-        demand="resources/load_data/{year}.csv",  # Adjust to match your data source
+        capacity_network="results/" + config["scenarios"]["folder"] + "/network/capacity-{scenario}.nc",
     output:
-        "resources/time_clustering/{year}.nc",
-    params:
-        periods=lambda wildcards: config["time"]["clustering"].get("snapshots", 8760),
-        method=lambda wildcards: config["time"]["clustering"].get("how", "representative"),
-    run:
-        print("Running TSAM for time series aggregation...")
-        df = pd.read_csv(input.demand, index_col=0, parse_dates=True)
-
-        tsam_model = TimeSeriesAggregation(
-            raw=df,
-            noTypicalPeriods=params.periods,
-            hoursPerPeriod=24,
-            clusterMethod='hierarchical',
-            representationMethod=params.method,
-            standardize=True
-        )
-
-        typical_periods = tsam_model.createTypicalPeriods()
-
-        ds = xr.Dataset({
-            'typical_periods': (['period', 'hour', 'feature'], typical_periods.values),
-        })
-        ds.coords['period'] = range(typical_periods.shape[0])
-        ds.coords['hour'] = range(typical_periods.shape[1])
-        ds.coords['feature'] = typical_periods.columns
-
-        ds.to_netcdf(output[0])
+        expand("networks/" + config["scenarios"]["folder"] + "/elec/{{scenario}}/dispatch-{year}.nc", 
+               year=config.get("dispatch_years", [2030, 2040, 2050]))
+    script:
+        "scripts/create_dispatch_networks.py"
 
 rule solve_network_dispatch:
+    """
+    Solve operational dispatch for a specific year using optimized capacities
+    """
     input:
-        dispatch_network="networks/elec/{scenario}/dispatch-{year}.nc",
-        optimised_network_stats="networks/network_stats/{scenario}.csv",
-    output: "networks/dispatch/{scenario}/dispatch_{year}.nc",
+        dispatch_network="networks/" + config["scenarios"]["folder"] + "/elec/{scenario}/dispatch-{year}.nc",
+        optimised_network_stats="results/" + config["scenarios"]["folder"] + "/network_stats/{scenario}.csv",
+    output: 
+        dispatch_results="results/" + config["scenarios"]["folder"] + "/dispatch/{scenario}/dispatch_{year}.nc",
+        dispatch_stats="results/" + config["scenarios"]["folder"] + "/dispatch_stats/{scenario}/dispatch_{year}.csv"
+    resources:
+        solver_slots=1
     script:
         "scripts/solve_network_dispatch.py"
+
+rule solve_all_dispatch:
+    """
+    Solve dispatch for all years in all scenarios
+    """
+    input:
+        expand("results/" + config["scenarios"]["folder"] + "/dispatch/{scenario}/dispatch_{year}.nc",
+               scenario=scenarios_to_run.index,
+               year=config.get("dispatch_years", [2030, 2040, 2050]))
+    output:
+        touch("results/solve_all_dispatch_complete")
+
+
+# rule solve_network_dispatch:
+#     input:
+#         dispatch_network="networks/elec/{scenario}/dispatch-{year}.nc",
+#         optimised_network_stats="networks/network_stats/{scenario}.csv",
+#     output: "networks/dispatch/{scenario}/dispatch_{year}.nc",
+#     script:
+#         "scripts/solve_network_dispatch.py"

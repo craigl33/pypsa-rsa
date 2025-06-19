@@ -26,6 +26,7 @@ gis:
 # Specification of relevent years for the model
 years: 
   reference_load_year: 2018  # should be a single year at present, could be extended in the future
+  dispatch_years: [2025, 2030, 2040, 2050] 
   reference_weather_years: 
     # reference years used for solar PV and wind profiles - can be single or multiple years
     # if multiple years are specified these are applied sequencially to the simulation years
@@ -200,7 +201,7 @@ solving:
   solver_options:
     highs-default:
       # refer to https://ergo-code.github.io/HiGHS/dev/options/definitions/
-      threads: 8
+      # threads: 8
       solver: "ipm"
       run_crossover: "off"
       small_matrix_value: 1e-6
