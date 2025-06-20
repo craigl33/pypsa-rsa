@@ -38,7 +38,8 @@ from _helpers import (
 from prepare_and_solve_network import (
     set_operational_limits,
     ccgt_steam_constraints,
-    rmippp_constraints,
+    solve_network
+    # rmippp_constraints,
 )
 
 def get_min_stable_level(n, model_file, model_setup, existing_carriers, extended_carriers):
@@ -201,6 +202,60 @@ def set_existing_committable(n, sns, model_file, model_setup, config):
 
     return p_max_pu
 
+from prepare_and_solve_network import (
+    set_operational_limits,
+    ccgt_steam_constraints,
+    reserve_margin_constraints,
+    load_extendable_parameters,
+    annual_co2_constraints,
+    add_national_capacity_constraints,
+)
+
+def solve_network_dispatch(n, sns):
+    """
+    Solve network using the new Linopy-based optimization approach.
+    
+    This follows the PyPSA-EUR v2025.04.0 pattern:
+    1. Create the optimization model using the new API
+    2. Add custom constraints via extra_functionality 
+    3. Solve the model
+    """
+    
+    def extra_functionality(n, snapshots):
+        """
+        Add custom constraints to the model.
+        This function is called after model creation but before solving.
+        """
+        # Custom constraints using the new Linopy-based approach
+        set_operational_limits(n, snapshots, scenario_setup)
+        ccgt_steam_constraints(n, snapshots, snakemake)
+        reserve_margin_constraints(n, snapshots, scenario_setup, snakemake)
+        
+        param = load_extendable_parameters(n, scenario_setup, snakemake)
+        annual_co2_constraints(n, snapshots, param, scenario_setup)
+        
+        # Add national capacity constraints for regional technologies
+        add_national_capacity_constraints(n, snapshots, scenario_setup)
+    
+    solver_config = snakemake.config["solving"]
+    solver_name = solver_config['solver']["name"]  # should be a string, e.g., "gurobi"
+    solver_options = solver_config["solver_options"][solver_config['solver'].get("options", {})] # should be a dict
+    # Solve using the new optimize method with extra_functionality
+    # This is the PyPSA 0.34.1 way following PyPSA-EUR patterns
+
+    logging.info("solver_name =", solver_name, type(solver_name))
+    logging.info("solver_options =", solver_options, type(solver_options))
+    for k, v in solver_options.items():
+        logging.info(f"Option key: {k}, value: {v}, type: {type(v)}")
+
+    n.optimize(
+        snapshots=sns,
+        multi_investment_periods=n.multi_invest,
+        solver_name=solver_name,
+        solver_options=solver_options,
+        extra_functionality=extra_functionality
+    )
+
 if __name__ == "__main__":
     if 'snakemake' not in globals():
         from _helpers import mock_snakemake
@@ -223,7 +278,7 @@ if __name__ == "__main__":
             }
         )
 
-    n = pypsa.Network(snakemake.input.network)
+    n = pypsa.Network(snakemake.input.dispatch_network)
 
     model_file = pd.ExcelFile(snakemake.input.model_file)
     model_setup = (
@@ -233,6 +288,8 @@ if __name__ == "__main__":
             index_col=[0])
             .loc[snakemake.wildcards.model_file]
     )
+
+
 
     config = snakemake.config["electricity"]["dispatch_committable_carriers"]
     p_max_pu = set_existing_committable(n, model_file, model_setup, config)
