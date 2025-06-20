@@ -246,8 +246,13 @@ def load_scenario_definition(snakemake):
     return scenario_setup
 
 def load_network_for_plots(fn, model_file, config, model_setup_costs, combine_hydro_ps=True, ):
+    """
+    Incomplete function. Not sure how it is actually used.
+
+    TODO: Either delete or reformulate
+    """
     import pypsa
-    from add_electricity import load_costs, update_transmission_costs
+    # from add_electricity import load_costs, update_transmission_costs # These dont exist
 
     n = pypsa.Network(fn)
 

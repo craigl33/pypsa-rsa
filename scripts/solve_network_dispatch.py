@@ -42,23 +42,35 @@ from prepare_and_solve_network import (
     # rmippp_constraints,
 )
 
-def get_min_stable_level(n, model_file, model_setup, existing_carriers, extended_carriers):
+import os
+
+def get_min_stable_level(n, model_setup, existing_carriers, extended_carriers):
+    
     
     existing_param = pd.read_excel(
-        model_file, 
-        sheet_name="fixed_conventional",
+        os.path.join(model_setup["sub_path"], "fixed_technologies.xlsx"), 
+        sheet_name="conventional",
         na_values=["-"],
-        index_col=[0,1]
-    ).loc[model_setup["fixed_conventional"]]
+    )
+    existing_param=existing_param.set_index(["Scenario", "Power Station Name"]).loc[model_setup["fixed_conventional"]]
     
     existing_gens = n.generators.query("carrier in @existing_carriers & p_nom_extendable == False").index
     existing_msl= existing_param.loc[existing_gens, "Min Stable Level (%)"].rename("p_min_pu")
     
     extended_param = pd.read_excel(
-        model_file, 
-        sheet_name = "extendable_parameters",
-        index_col = [0,2,1],
-    ).sort_index().loc[model_setup["extendable_parameters"]]
+        os.path.join(model_setup["sub_path"], "extendable_technologies.xlsx"), 
+        sheet_name = "parameters"
+    )
+
+    extended_param = extended_param.set_index( ["scenario", "parameter", "carrier"]
+    ).sort_index()
+    
+    ## Extended paramaeters are actually either default or different for AMBITIONS
+    try:
+        extended_param = extended_param.loc[model_setup["extendable_techs"]]
+    except KeyError:
+        logger.info("No extendable technologies defined for this scenario. Using default settings")
+        extended_param = extended_param.loc["default"]
 
     extended_gens = n.generators.query("carrier in @extended_carriers & p_nom_extendable").index
     extended_msl = pd.Series(index=extended_gens, name = "p_min_pu")
@@ -181,7 +193,7 @@ def set_max_status4(n, sns, p_max_pu):
     
     n.model.add_constraints(lhs, "<=", rhs, name="max_status")
 
-def set_existing_committable(n, sns, model_file, model_setup, config):
+def set_existing_committable(n, sns, model_setup, config):
 
     existing_carriers = config['existing']
     existing_gen = n.generators.query("carrier in @existing_carriers & p_nom_extendable == False").index.to_list()
@@ -195,7 +207,7 @@ def set_existing_committable(n, sns, model_file, model_setup, config):
     n.generators_t.p_max_pu.loc[:, existing_gen + extended_gen] = 1
     n.generators.loc[existing_gen + extended_gen, "p_max_pu"] = 1
 
-    existing_msl, extended_msl = get_min_stable_level(n, model_file, model_setup, existing_carriers, extended_carriers)
+    existing_msl, extended_msl = get_min_stable_level(n, model_setup, existing_carriers, extended_carriers)
 
     n.generators.loc[existing_gen, "p_min_pu"] = existing_msl
     n.generators.loc[extended_gen, "p_min_pu"] = extended_msl
@@ -211,7 +223,9 @@ from prepare_and_solve_network import (
     add_national_capacity_constraints,
 )
 
-def solve_network_dispatch(n, sns):
+from _helpers import load_scenario_definition
+
+def solve_network_dispatch(n, sns, enable_unit_commitment=False, export_to_Sienna=False):
     """
     Solve network using the new Linopy-based optimization approach.
     
@@ -223,38 +237,61 @@ def solve_network_dispatch(n, sns):
     
     def extra_functionality(n, snapshots):
         """
-        Add custom constraints to the model.
+        Add custom constraints to the model specifically for dispatch optimisation.
         This function is called after model creation but before solving.
         """
         # Custom constraints using the new Linopy-based approach
+        # DISPATCH-SPECIFIC: Add unit commitment constraints if needed
+        if hasattr(n, 'generators') and 'committable' in n.generators.columns:
+            committable_gens = n.generators[n.generators.committable == True].index
+            if len(committable_gens) > 0:
+                # Add your unit commitment constraints here
+                set_max_status(n, snapshots, p_max_pu)  # from your dispatch script
+                
+
         set_operational_limits(n, snapshots, scenario_setup)
         ccgt_steam_constraints(n, snapshots, snakemake)
-        reserve_margin_constraints(n, snapshots, scenario_setup, snakemake)
+        # reserve_margin_constraints(n, snapshots, scenario_setup, snakemake) # Not needed for dispatch
         
         param = load_extendable_parameters(n, scenario_setup, snakemake)
         annual_co2_constraints(n, snapshots, param, scenario_setup)
         
         # Add national capacity constraints for regional technologies
-        add_national_capacity_constraints(n, snapshots, scenario_setup)
+        # add_national_capacity_constraints(n, snapshots, scenario_setup) # Not needed for dispatch
     
-    solver_config = snakemake.config["solving"]
-    solver_name = solver_config['solver']["name"]  # should be a string, e.g., "gurobi"
-    solver_options = solver_config["solver_options"][solver_config['solver'].get("options", {})] # should be a dict
-    # Solve using the new optimize method with extra_functionality
-    # This is the PyPSA 0.34.1 way following PyPSA-EUR patterns
+    if enable_unit_commitment:
+        # Set up committable generators (from your existing code)
+        config = snakemake.config["electricity"]["dispatch_committable_carriers"]
+        p_max_pu = set_existing_committable(n, sns, model_setup, config)
+        
+        # Store for use in extra_functionality
+        n._dispatch_constraints = {'unit_commitment': True, 'p_max_pu': p_max_pu}
 
-    logging.info("solver_name =", solver_name, type(solver_name))
-    logging.info("solver_options =", solver_options, type(solver_options))
-    for k, v in solver_options.items():
-        logging.info(f"Option key: {k}, value: {v}, type: {type(v)}")
+    if not export_to_Sienna:
+        
 
-    n.optimize(
-        snapshots=sns,
-        multi_investment_periods=n.multi_invest,
-        solver_name=solver_name,
-        solver_options=solver_options,
-        extra_functionality=extra_functionality
-    )
+        solver_config = snakemake.config["solving"]
+        solver_name = solver_config['solver']["name"]  # should be a string, e.g., "gurobi"
+        solver_options = solver_config["solver_options"][solver_config['solver'].get("options", {})] # should be a dict
+        # Solve using the new optimize method with extra_functionality
+        # This is the PyPSA 0.34.1 way following PyPSA-EUR patterns
+
+        logging.info("solver_name =", solver_name, type(solver_name))
+        logging.info("solver_options =", solver_options, type(solver_options))
+        for k, v in solver_options.items():
+            logging.info(f"Option key: {k}, value: {v}, type: {type(v)}")
+
+        n.optimize(
+            snapshots=sns,
+            multi_investment_periods=n.multi_invest,
+            solver_name=solver_name,
+            solver_options=solver_options,
+            extra_functionality=extra_functionality,
+            linearized_unit_commitment=True  # Add this for dispatch with UC
+        )
+    else:
+        logging.info("Exporting to Sienna format is not yet implemented.")
+        raise NotImplementedError
 
 if __name__ == "__main__":
     if 'snakemake' not in globals():
@@ -275,31 +312,23 @@ if __name__ == "__main__":
             'solve_network_dispatch', 
             **{
                 'scenario':'TEST',
+                'year':2030
             }
         )
 
     n = pypsa.Network(snakemake.input.dispatch_network)
 
-    model_file = pd.ExcelFile(snakemake.input.model_file)
-    model_setup = (
-        pd.read_excel(
-            model_file, 
-            sheet_name="model_setup",
-            index_col=[0])
-            .loc[snakemake.wildcards.model_file]
-    )
-
+    scenario_setup = load_scenario_definition(snakemake)
 
 
     config = snakemake.config["electricity"]["dispatch_committable_carriers"]
-    p_max_pu = set_existing_committable(n, model_file, model_setup, config)
-    n.optimize.fix_optimal_capacities()
+    p_max_pu = set_existing_committable(n=n, sns=n.snapshots, model_setup=scenario_setup, config=config)
+    # n.optimize.fix_optimal_capacities() # not sure this is needed
 
-    n.optimize.create_model(snapshots = n.snapshots[:2000], linearized_unit_commitment=True, multi_investment_periods=True)
-    set_max_status(n, n.snapshots[:2000], p_max_pu)
+    # n.optimize.create_model(snapshots = n.snapshots[:2000], linearized_unit_commitment=True, multi_investment_periods=True)
+    # set_max_status(n, n.snapshots[:2000], p_max_pu)
 
-    solver_name = snakemake.config["solving"]["solver"].pop("name")
-    solver_options = snakemake.config["solving"]["solver"].copy()
-    n.optimize.solve_model(solver_name=solver_name, solver_options=solver_options)
-
-    n.export_to_netcdf(snakemake.output[0])
+    
+    n_dispatch = pypsa.Network(snakemake.input.dispatch_network)
+    solve_network_dispatch(n_dispatch, n_dispatch.snapshots, export_to_Sienna=False)
+    n.export_to_netcdf(snakemake.dispatch_results)
