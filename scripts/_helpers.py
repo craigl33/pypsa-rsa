@@ -779,7 +779,7 @@ def mock_snakemake(rulename, **wildcards):
         Input: Complete electrical network from add_electricity
         Outputs: Optimized network plus statistics and emissions data
         """
-        snakemake.input = [f"networks/{folder}/elec/capacity-{scenario}.nc"]
+        snakemake.input.network = f"networks/{folder}/elec/capacity-{scenario}.nc"
         snakemake.output = [
             f"results/{folder}/network/capacity-{scenario}.nc",      # Solved network
             f"results/{folder}/network_stats/{scenario}.csv",       # Network statistics  
@@ -794,7 +794,7 @@ def mock_snakemake(rulename, **wildcards):
         Input: Solved capacity expansion network from capacity expansion
         Outputs: Individual dispatch networks for each year
         """
-        snakemake.input = FlexibleNamespace()
+        snakemake.input.network = f"networks/{folder}/elec/capacity-{scenario}.nc"
         snakemake.input.capacity_network = f"results/{folder}/network/capacity-{scenario}.nc"
         
         # Get dispatch years from config

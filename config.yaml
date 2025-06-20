@@ -206,11 +206,12 @@ solving:
       run_crossover: "off"
       small_matrix_value: 1e-6
       large_matrix_value: 1e9
-      primal_feasibility_tolerance: 1e-5
-      dual_feasibility_tolerance: 1e-5
-      ipm_optimality_tolerance: 1e-4
+      primal_feasibility_tolerance: 1e-6
+      dual_feasibility_tolerance: 1e-6
+      ipm_optimality_tolerance: 1e-6
       parallel: "on"
       random_seed: 123
+      run_crossover: 'on'
     highs-simplex:
       solver: "simplex"
       parallel: "on"
