@@ -464,9 +464,34 @@ def solve_network(n, sns):
 """
 TSAM clustering functionality
 """
+def calculate_renewable_generation(n):
+    """Calculate total renewable generation"""
+    
+    renewable_carriers = ['solar', 'wind', 'hydro', 'ror']  # adjust for your system
+    total_renewable = pd.Series(0.0, index=n.snapshots)
+    
+    for gen in n.generators.index:
+        carrier = n.generators.loc[gen, 'carrier']
+        if any(ren in carrier.lower() for ren in renewable_carriers):
+            # Get capacity
+            if 'p_nom_max' in n.generators.columns:
+                capacity = n.generators.loc[gen, 'p_nom_max']
+            else:
+                capacity = n.generators.loc[gen, 'p_nom']
+            
+            # Get availability profile
+            if gen in n.generators_t.p_max_pu.columns:
+                availability = n.generators_t.p_max_pu[gen]
+            else:
+                availability = 1.0  # constant availability
+            
+            generation = capacity * availability
+            total_renewable += generation
+    
+    return total_renewable
 
 def apply_tsam_clustering(n, period_type='total', typical_periods=36, 
-                         hours_per_period=24, max_features=np.inf):
+                         hours_per_period=24, max_features=np.inf, clustering_mode='demand'):
     """
     Flexible TSAM clustering with configurable period frequency
     
@@ -521,59 +546,84 @@ def apply_tsam_clustering(n, period_type='total', typical_periods=36,
     # Build raw_data with proper index
     raw_data = pd.DataFrame(index=datetime_index)
     
-    # Add total load (always important)
-    if not n.loads_t.p_set.empty:
-        total_load = n.loads_t.p_set.sum(axis=1)
-        raw_data['total_load'] = total_load.values / total_load.max()
-        print(f"Added total_load feature")
-    
-    # Add regional loads (top regions)
-    if not n.loads_t.p_set.empty:
-        regional_totals = n.loads_t.p_set.sum().sort_values(ascending=False)
-        top_regions = regional_totals.head(5).index
-        
-        for region in top_regions:
-            regional_load = n.loads_t.p_set[region]
-            if regional_load.max() > 0:
-                clean_load = regional_load.fillna(0)
-                raw_data[f'load_{region}'] = clean_load.values / clean_load.max()
-                print(f"Added load_{region} feature")
-    
-    # Add REGIONAL renewable profiles
-    feature_count = len(raw_data.columns)
-    
-    if not n.generators_t.p_max_pu.empty:
-        gen_info = n.generators[['carrier', 'bus']].copy()
-        
-        for carrier in ['solar', 'wind']:
-            carrier_gens = n.generators[n.generators.carrier.str.contains(carrier, case=False, na=False)]
+    raw_data = pd.DataFrame(index=datetime_index)
+
+    # NEW: Mode-based feature selection
+    if clustering_mode == 'demand':
+        # Cluster based on total demand only
+        if not n.loads_t.p_set.empty:
+            total_load = n.loads_t.p_set.sum(axis=1)
+            raw_data['total_demand'] = total_load.values
+            print(f"Added total_demand feature")
+
+    elif clustering_mode == 'net_demand':
+        # Cluster based on net demand (load - renewables)
+        if not n.loads_t.p_set.empty:
+            total_load = n.loads_t.p_set.sum(axis=1)
             
-            if len(carrier_gens) > 0:
-                print(f"Processing {len(carrier_gens)} {carrier} generators...")
+            # Calculate total renewable generation
+            total_renewable = calculate_renewable_generation(n)
+            
+            net_demand = total_load - total_renewable
+            raw_data['net_demand'] = net_demand.values 
+            print(f"Added net_demand feature")
+
+    elif clustering_mode == 'multi_feature':
+        # Your existing multi-feature approach
+
+        # Add total load (always important)
+        if not n.loads_t.p_set.empty:
+            total_load = n.loads_t.p_set.sum(axis=1)
+            raw_data['total_load'] = total_load.values 
+            print(f"Added total_load feature")
+        
+        # Add regional loads (top regions)
+        if not n.loads_t.p_set.empty:
+            regional_totals = n.loads_t.p_set.sum().sort_values(ascending=False)
+            top_regions = regional_totals.head(5).index
+            
+            for region in top_regions:
+                regional_load = n.loads_t.p_set[region]
+                if regional_load.max() > 0:
+                    clean_load = regional_load.fillna(0)
+                    raw_data[f'load_{region}'] = clean_load.values / clean_load.max()
+                    print(f"Added load_{region} feature")
+        
+        # Add REGIONAL renewable profiles
+        feature_count = len(raw_data.columns)
+        
+        if not n.generators_t.p_max_pu.empty:
+            gen_info = n.generators[['carrier', 'bus']].copy()
+            
+            for carrier in ['solar', 'wind']:
+                carrier_gens = n.generators[n.generators.carrier.str.contains(carrier, case=False, na=False)]
                 
-                for bus in carrier_gens['bus'].unique()[:8]:
-                    bus_gens = carrier_gens[carrier_gens['bus'] == bus].index
+                if len(carrier_gens) > 0:
+                    print(f"Processing {len(carrier_gens)} {carrier} generators...")
                     
-                    if len(bus_gens) > 0 and all(gen in n.generators_t.p_max_pu.columns for gen in bus_gens):
-                        capacity_weights = n.generators.loc[bus_gens, 'p_nom_max']
-                        if capacity_weights.sum() > 0:
-                            regional_cf = (n.generators_t.p_max_pu[bus_gens] * capacity_weights).sum(axis=1) / capacity_weights.sum()
-                            clean_cf = regional_cf.fillna(0)
-                            
-                            feature_name = f'{carrier}_{bus}'
-                            raw_data[feature_name] = clean_cf.values
-                            feature_count += 1
-                            print(f"Added {feature_name} feature")
-                            
-                            if feature_count >= max_features:
-                                break
-                
-                if feature_count >= max_features:
-                    print(f"Reached max features ({max_features}) - stopping here")
-                    break
-    
-    print(f"TSAM features ({len(raw_data.columns)}): {raw_data.columns.tolist()}")
-    
+                    for bus in carrier_gens['bus'].unique()[:8]:
+                        bus_gens = carrier_gens[carrier_gens['bus'] == bus].index
+                        
+                        if len(bus_gens) > 0 and all(gen in n.generators_t.p_max_pu.columns for gen in bus_gens):
+                            capacity_weights = n.generators.loc[bus_gens, 'p_nom_max']
+                            if capacity_weights.sum() > 0:
+                                regional_cf = (n.generators_t.p_max_pu[bus_gens] * capacity_weights).sum(axis=1) / capacity_weights.sum()
+                                clean_cf = regional_cf.fillna(0)
+                                
+                                feature_name = f'{carrier}_{bus}'
+                                raw_data[feature_name] = clean_cf.values
+                                feature_count += 1
+                                print(f"Added {feature_name} feature")
+                                
+                                if feature_count >= max_features:
+                                    break
+                    
+                    if feature_count >= max_features:
+                        print(f"Reached max features ({max_features}) - stopping here")
+                        break
+        
+        print(f"TSAM features ({len(raw_data.columns)}): {raw_data.columns.tolist()}")
+        
     # Final NaN check and cleanup
     if raw_data.isna().any().any():
         print("⚠️  Found NaN values - cleaning...")
@@ -589,50 +639,85 @@ def apply_tsam_clustering(n, period_type='total', typical_periods=36,
             raw_data = raw_data.dropna()
         
         print(f"Clean data shape: {raw_data.shape}")
-    
+        
     # Apply TSAM clustering with calculated total periods
     from tsam.timeseriesaggregation import TimeSeriesAggregation
     
-    try:
-        aggregation = TimeSeriesAggregation(
-            raw_data,
-            resolution=1.0,
-            noTypicalPeriods=total_typical_periods,
-            hoursPerPeriod=hours_per_period,
-            representationMethod='minmaxmeanRepresentation',
-            clusterMethod='hierarchical',
-            solver='highs'
-        )
+    
+    aggregation = TimeSeriesAggregation(
+        raw_data,
+        resolution=1.0,
+        noTypicalPeriods=total_typical_periods,
+        hoursPerPeriod=hours_per_period,
+        representationMethod= 'distributionAndMinMaxRepresentation', #'distributionAndMinMaxRepresentation', distributionRepresentation # Fixed
+        clusterMethod='hierarchical',
+        solver='cbc',
+        rescaleClusterPeriods=True,  # Essential for energy conservation
+        roundOutput=4,
         
-        typical_periods = aggregation.createTypicalPeriods()
+        # # Min/max preservation
+        # extremePeriodMethod='new_cluster_center',
+        # addPeakMax=[raw_data.columns[0]],  # Use first column name
+        # addPeakMin=[raw_data.columns[0]],  # Use first column name
         
-        # Get weights
-        weights = None
-        for attr_name in ['periodOccurences', 'periodOccurrences', 'clusterOccurrences', 'typPeriodOccurrences']:
+        sortValues=False,
+    )
+    
+    typical_periods = aggregation.createTypicalPeriods()
+    
+    # Get weights from the correct TSAM attribute
+    weights = None
+    
+    # Try to get weights from clusterPeriodNoOccur (most reliable)
+    if hasattr(aggregation, 'clusterPeriodNoOccur'):
+        cluster_occurrences = aggregation.clusterPeriodNoOccur
+        weights = []
+        for period_idx in range(aggregation.noTypicalPeriods):
+            if period_idx in cluster_occurrences:
+                weights.append(cluster_occurrences[period_idx])
+            else:
+                weights.append(1)  # fallback
+        logging.info(f"Found weights from clusterPeriodNoOccur: sum={sum(weights)}")
+    
+    # Fallback to other weight attributes
+    if weights is None:
+        logging.warning("clusterPeriodNoOccur not found - trying other attributes...")
+        for attr_name in ['periodOccurrences', 'clusterOccurrences', 'typPeriodOccurrences']:
             if hasattr(aggregation, attr_name):
                 weights = getattr(aggregation, attr_name)
-                print(f"Found weights in attribute: {attr_name}")
+                logging.info(f"Found weights in attribute: {attr_name}")
                 break
-        
-        if weights is None:
-            weights = [len(raw_data) // len(typical_periods)] * (len(typical_periods) // hours_per_period)
-            print("Using fallback equal weights")
-        
-        print(f"✅ Flexible TSAM clustering successful!")
-        print(f"  Input: {len(raw_data)} time steps, {len(raw_data.columns)} features")
-        print(f"  Output: {len(typical_periods)} representative periods")
-        print(f"  Period breakdown: {_get_period_breakdown(datetime_index, period_type, typical_periods)}")
-        
-        return typical_periods, weights, aggregation
-        
-    except Exception as e:
-        print(f"❌ TSAM failed: {e}")
-        print(f"Debug info:")
-        print(f"  Data shape: {raw_data.shape}")
-        print(f"  Data index type: {type(raw_data.index)}")
-        print(f"  First few timestamps: {raw_data.index[:3]}")
-        print(f"  Data dtypes: {raw_data.dtypes.unique()}")
-        return None, None, None
+    
+    # Final fallback (this should not happen with proper TSAM setup)
+    if weights is None:
+        logging.warning("⚠️  No weights found - using uniform weights")
+        num_periods = len(typical_periods) // hours_per_period
+        original_periods = len(raw_data) // hours_per_period
+        weight_per_period = original_periods / num_periods
+        weights = [weight_per_period] * num_periods
+    
+        # Simple verification
+    original_total = raw_data.sum().sum()
+
+    weighted_total = np.sum(np.sum(
+        typical_periods.loc[idx[i,:],:].values*weights[i]
+        for i in np.arange(total_typical_periods)
+    ))
+
+    
+    print(f"✅ TSAM clustering successful!")
+    print(f"  Input: {len(raw_data)} time steps, {len(raw_data.columns)} features")
+    print(f"  Output: {len(typical_periods)} representative time steps")
+    print(f"  Energy conservation: {weighted_total/original_total:.6f}")
+    print(f"  Peak values maintained: {typical_periods.values.max()/raw_data.values.max():.6f}")
+    print(f"  Min values maintained: {typical_periods.values.min()/raw_data.values.min():.6f}")
+    
+    # Additional validation for demand clustering modes
+    if clustering_mode in ['demand', 'net_demand']:
+        print(f"  Clustering mode: {clustering_mode} (single feature)")
+        print(f"  Feature used: {raw_data.columns[0]}")
+    
+    return typical_periods, weights, aggregation
 
 
 def _calculate_total_periods(datetime_index, period_type, typical_periods):
@@ -735,6 +820,9 @@ def apply_tsam_to_pypsa_network(n, period_type='total', typical_periods=36,
     n_clustered = apply_tsam_to_pypsa_network(n, period_type='weekly', typical_periods=2)
     """
     
+    # Store original information BEFORE clustering
+    original_snapshots = n.snapshots.copy()
+
     print(f"🔄 Applying flexible TSAM clustering to PyPSA network...")
     
     # Step 1: Apply flexible TSAM clustering
@@ -985,7 +1073,42 @@ def apply_tsam_to_pypsa_network(n, period_type='total', typical_periods=36,
     print(f"    Clustered network: {len(n_clustered.snapshots)} snapshots")
     print(f"    Reduction factor: {len(n.snapshots)/len(n_clustered.snapshots):.1f}x")
     
+    # NEW: Store mapping information as network attributes
+    n_clustered._tsam_original_snapshots = original_snapshots
+    n_clustered._tsam_aggregation_obj = aggregation
+
+    # NEW: Create and store time mapping
+    n_clustered._tsam_time_mapping = create_simple_time_mapping(
+    aggregation, original_snapshots, n_clustered.snapshots
+    )
+
     return n_clustered
+
+def create_simple_time_mapping(aggregation, original_snapshots, representative_snapshots):
+    """
+    Create basic time mapping from TSAM aggregation
+    """
+    
+    time_mapping = pd.Series(index=original_snapshots, dtype=object)
+    
+    # Simple approach: distribute original times across representative periods
+    for i, original_time in enumerate(original_snapshots):
+        repr_idx = i % len(representative_snapshots)
+        time_mapping.iloc[i] = representative_snapshots[repr_idx]
+    
+    return time_mapping
+
+def export_time_mapping(n_clustered, filepath):
+    """Export time mapping to CSV file"""
+    if hasattr(n_clustered, '_tsam_time_mapping'):
+        n_clustered._tsam_time_mapping.to_csv(filepath, header=['representative_time'])
+        print(f"📄 Time mapping exported to: {filepath}")
+
+def load_time_mapping(n_clustered, filepath):
+    """Load time mapping from CSV file"""
+    time_mapping = pd.read_csv(filepath, index_col=0, parse_dates=True)['representative_time']
+    n_clustered._tsam_time_mapping = time_mapping
+    print(f"📄 Time mapping loaded from: {filepath}")
 
 def compare_networks_before_after_tsam(n_original, n_clustered):
     """
@@ -1954,7 +2077,7 @@ if __name__ == "__main__":
         )
     logging.info("Preparing costs")
 
-    n = pypsa.Network(snakemake.input[0])
+    n = pypsa.Network(snakemake.input.network)
     add_missing_carriers(n)
     print("Network created")
     scenario_setup = load_scenario_definition(snakemake)
@@ -1984,10 +2107,7 @@ if __name__ == "__main__":
         _set_extendable_limits_national(n) 
     else:
         # Legacy function for setting per bus in extendable_technologies.xlsx
-        set_extendable_limits_explicit_per_bus(n)
-
-    
-    
+        set_extendable_limits_explicit_per_bus(n)    
 
     logging.info("Solving network")
     # Apply TSAM clustering

@@ -97,6 +97,7 @@ rule create_dispatch_networks:
     Create individual yearly dispatch networks from capacity expansion results
     """
     input:
+        network="networks/"+ config["scenarios"]["folder"] + "/elec/capacity-{scenario}.nc",
         capacity_network="results/" + config["scenarios"]["folder"] + "/network/capacity-{scenario}.nc",
     output:
         expand("networks/" + config["scenarios"]["folder"] + "/elec/{{scenario}}/dispatch-{year}.nc", 

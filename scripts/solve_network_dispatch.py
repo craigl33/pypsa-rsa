@@ -20,7 +20,7 @@ from pypsa.descriptors import get_switchable_as_dense as get_as_dense, get_activ
 logger = logging.getLogger(__name__)
 
 from _helpers import (
-    _add_missing_carriers_from_costs,
+    add_missing_carriers,
     convert_cost_units,
     load_disaggregate, 
     map_component_parameters, 
@@ -222,6 +222,7 @@ if __name__ == "__main__":
                 'scenario':'TEST',
             }
         )
+
     n = pypsa.Network(snakemake.input.network)
 
     model_file = pd.ExcelFile(snakemake.input.model_file)

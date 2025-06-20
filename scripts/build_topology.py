@@ -53,7 +53,7 @@ from operator import attrgetter
 import os
 import pypsa
 import re
-from _helpers import save_to_geojson, load_scenario_definition, find_right_index_col
+from _helpers import save_to_geojson, load_scenario_definition
 from base_network import get_years
 from pypsa.geo import haversine
 
