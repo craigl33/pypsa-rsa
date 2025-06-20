@@ -1717,13 +1717,15 @@ def check_pu_profiles(clean_flag):
 
 def add_carrier_emissions(n):
 
+    
+
     emissions = (
         pd.read_excel(
-            model_file, 
-            sheet_name='emissions',
+            os.path.join(scenario_setup["sub_path"], "carbon_constraints.xlsx"), 
+            sheet_name='fuel_emissions_intensity',
             index_col=[0,1])
     )
-    co2_emissions = emissions.loc["co2_emissions"]
+    co2_emissions = emissions.loc["emissions"]
     
     n.madd(
         "Carrier", 
