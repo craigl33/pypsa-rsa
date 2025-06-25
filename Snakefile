@@ -115,6 +115,8 @@ rule solve_network_dispatch:
     output: 
         dispatch_results="results/" + config["scenarios"]["folder"] + "/dispatch/{scenario}/dispatch_{year}.nc",
         dispatch_stats="results/" + config["scenarios"]["folder"] + "/dispatch_stats/{scenario}/dispatch_{year}.csv"
+        # Optional: Add Sienna output directory
+        sienna_export_dir="networks/" + config["scenarios"]["folder"] + "/sienna/{scenario}/dispatch_{year}/"
     resources:
         solver_slots=1
     script:

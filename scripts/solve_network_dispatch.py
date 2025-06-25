@@ -16,6 +16,7 @@ from xarray import DataArray
 #from _helpers import configure_logging, update_config_with_sector_opts
 #from solve_network import prepare_network, solve_network
 from pypsa.descriptors import get_switchable_as_dense as get_as_dense, get_activity_mask
+from scripts.export_to_sienna import export_pypsa_to_sienna
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,7 @@ def set_upper_avg_status_over_sns(n, sns, p_max_pu):
 
     n.model.add_constraints(lhs, "<=", rhs, name="upper_avg_status_sns")
 
-def set_max_status4(n, sns, p_max_pu):
+def set_max_status(n, sns, p_max_pu):
     
     # init period = 100h to let model stabilise status
     # if sns[0] == n.snapshots[0]:
@@ -225,6 +226,46 @@ from prepare_and_solve_network import (
 
 from _helpers import load_scenario_definition
 
+def add_operational_constraints(n, snapshots):
+    """
+    Add operational constraints to the network model for dispatch optimization.
+
+    This function applies a series of constraints to the network model using Linopy.
+    It includes constraints specific to dispatch optimization such as unit commitment,
+    operational limits, and CO2 constraints. These constraints are tailored to ensure
+    the network model adheres to both technical and regulatory requirements during 
+    the optimization process.
+
+    Parameters:
+    n : pypsa.Network
+        The PyPSA network object containing all components and their attributes.
+    snapshots : list or pd.Index
+        The time snapshots for which the constraints are to be applied.
+
+    Custom Constraints:
+    - Unit Commitment: Applied to generators marked as committable.
+    - Operational Limits: Sets operational boundaries for the network.
+    - CCGT Steam Constraints: Ensures compliance with CCGT operational parameters.
+    - Annual CO2 Constraints: Enforces CO2 emission limits annually.
+
+    Note:
+    Reserve margin constraints are not included as they are not needed for dispatch.
+    """
+
+    if hasattr(n, 'generators') and 'committable' in n.generators.columns:
+        committable_gens = n.generators[n.generators.committable == True].index
+        if len(committable_gens) > 0:
+            # Add your unit commitment constraints here
+            set_max_status(n, snapshots, p_max_pu)  # from your dispatch script
+            
+
+    set_operational_limits(n, snapshots, scenario_setup)
+    ccgt_steam_constraints(n, snapshots, snakemake)
+    # reserve_margin_constraints(n, snapshots, scenario_setup, snakemake) # Not needed for dispatch
+    
+    param = load_extendable_parameters(n, scenario_setup, snakemake)
+    annual_co2_constraints(n, snapshots, param, scenario_setup)
+
 def solve_network_dispatch(n, sns, enable_unit_commitment=False, export_to_Sienna=False):
     """
     Solve network using the new Linopy-based optimization approach.
@@ -268,7 +309,6 @@ def solve_network_dispatch(n, sns, enable_unit_commitment=False, export_to_Sienn
         n._dispatch_constraints = {'unit_commitment': True, 'p_max_pu': p_max_pu}
 
     if not export_to_Sienna:
-        
 
         solver_config = snakemake.config["solving"]
         solver_name = solver_config['solver']["name"]  # should be a string, e.g., "gurobi"
@@ -319,16 +359,11 @@ if __name__ == "__main__":
     n = pypsa.Network(snakemake.input.dispatch_network)
 
     scenario_setup = load_scenario_definition(snakemake)
-
-
+    
     config = snakemake.config["electricity"]["dispatch_committable_carriers"]
     p_max_pu = set_existing_committable(n=n, sns=n.snapshots, model_setup=scenario_setup, config=config)
-    # n.optimize.fix_optimal_capacities() # not sure this is needed
-
-    # n.optimize.create_model(snapshots = n.snapshots[:2000], linearized_unit_commitment=True, multi_investment_periods=True)
-    # set_max_status(n, n.snapshots[:2000], p_max_pu)
-
-    
     n_dispatch = pypsa.Network(snakemake.input.dispatch_network)
-    solve_network_dispatch(n_dispatch, n_dispatch.snapshots, export_to_Sienna=False)
+    
+    solve_network_dispatch(n_dispatch, n_dispatch.snapshots)
     n.export_to_netcdf(snakemake.dispatch_results)
+    logging.info(f"Exported to {snakemake.dispatch_results}")

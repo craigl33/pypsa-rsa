@@ -211,9 +211,11 @@ def set_operational_limits(n, sns, scenario_setup):
     Set operational limits from Excel configuration.
     Updated for PyPSA 0.34.1.
     """
-    if not hasattr(n, 'model') or n.model is None:
-        logging.warning("Network model not created yet. Skipping operational limits.")
-        return
+
+    # Not sure this is needed
+    # if not hasattr(n, 'model') or n.model is None:
+    #     logging.warning("Network model not created yet. Skipping operational limits.")
+    #     return
 
     op_limits = pd.read_excel(
         os.path.join(scenario_setup["sub_path"], "operational_constraints.xlsx"),

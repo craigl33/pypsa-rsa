@@ -218,3 +218,15 @@ solving:
       primal_feasibility_tolerance: 1e-5
       dual_feasibility_tolerance: 1e-5
       random_seed: 123
+
+sienna:
+  enabled: true  # Set to true to enable Sienna export and simulation
+  simulation_type: "economic_dispatch"  # or "unit_commitment"
+  solver: "HiGHS"  # "HiGHS", "Gurobi", "CPLEX"
+  horizon_days: 7
+  julia_project_path: "~/showcase/Sienna"  # Optional: path to Julia project with Sienna packages
+  
+  # Advanced options
+  export_only: true  # If true, only export CSV files without running simulation
+  compare_results: false  # Whether to compare PyPSA and Sienna results
+  export_time_series: false  # Whether to include time series data
