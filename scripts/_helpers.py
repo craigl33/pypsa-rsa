@@ -830,6 +830,25 @@ def mock_snakemake(rulename, **wildcards):
         snakemake.output = FlexibleNamespace()
         snakemake.output.dispatch_results = f"results/{folder}/dispatch/{scenario}/dispatch_{year}.nc"
         snakemake.output.dispatch_stats = f"results/{folder}/dispatch_stats/{scenario}/dispatch_{year}.csv"
+        snakemake.output.sienna_export_dir = f"networks/sienna/{scenario}/dispatch_{year}/"
+
+    elif rulename == "export_to_sienna":
+        """
+        Rule: export_to_sienna
+        Purpose: Export PyPSA topology and components to Sienna format for soloving economic dispatch
+        
+        Inputs: Dispatch network for specific year + optimized network stats
+        Outputs: Dispatch results and statistics for the year
+        """
+        # Get year from wildcards - you'll need to pass this in the mock call
+        year = wildcards.get("year", 2030)  # Default to 2030 if not specified
+        
+        snakemake.input = FlexibleNamespace()
+        snakemake.input.dispatch_network = f"networks/{folder}/elec/{scenario}/dispatch-{year}.nc"
+        
+        # Outputs
+        snakemake.output = FlexibleNamespace()
+        snakemake.output.sienna_export_dir = f"networks/sienna/{scenario}/dispatch_{year}/"
         
     else:
         """
