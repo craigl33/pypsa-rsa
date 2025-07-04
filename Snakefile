@@ -122,6 +122,17 @@ rule solve_network_dispatch:
     script:
         "scripts/solve_network_dispatch.py"
 
+rule export_to_sienna:
+    """
+    Export network to CSV format for input to Sienna
+    """
+    input:
+        dispatch_network="networks/" + config["scenarios"]["folder"] + "/elec/{scenario}/dispatch-{year}.nc"
+    output:
+        sienna_export_dir="networks/" + config["scenarios"]["folder"] + "/sienna/{scenario}/dispatch_{year}/"
+    script:
+        "scripts/export_to_sienna.py"
+
 rule solve_all_dispatch:
     """
     Solve dispatch for all years in all scenarios

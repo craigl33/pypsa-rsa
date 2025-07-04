@@ -848,7 +848,7 @@ def mock_snakemake(rulename, **wildcards):
         
         # Outputs
         snakemake.output = FlexibleNamespace()
-        snakemake.output.sienna_export_dir = f"networks/sienna/{scenario}/dispatch_{year}/"
+        snakemake.output.sienna_export_dir = f"~/showcase/Sienna/networks/{folder}/{scenario}/dispatch-{year}/"
         
     else:
         """
