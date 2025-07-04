@@ -1322,7 +1322,8 @@ if __name__ == "__main__":
     # Load network and scenario configuration
     n = pypsa.Network(snakemake.input.dispatch_network)
     scenario_setup = load_scenario_definition(snakemake)
-    export_folder = snakemake.output.sienna_export_dir
+    export_folder = Path(snakemake.output.sienna_export_dir).expanduser()
+    
 
     logger.info(f"Starting IMPROVED export to PowerSystems.jl 4.6.2 format...")
     logger.info(f"Network: {len(n.buses)} buses, {len(n.generators)} generators, {len(n.loads)} loads")
