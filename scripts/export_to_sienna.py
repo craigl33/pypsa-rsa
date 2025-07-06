@@ -195,7 +195,7 @@ class PyPSAToSiennaExporter:
         return files_created
     
     def _export_static_components(self, output_path: Path) -> Dict[str, str]:
-        """Export all static component data."""
+        """Export all static component data with improved AC/DC link handling."""
         files_created = {}
         
         # Export buses first
@@ -213,11 +213,11 @@ class PyPSAToSiennaExporter:
             load_files = self._export_loads(output_path)
             files_created.update(load_files)
         
-        # Export branches
+        # Export AC branches (including AC links) - UPDATED
         branch_files = self._export_branches(output_path)
         files_created.update(branch_files)
         
-        # Export DC branches
+        # Export DC branches (only true DC links) - UPDATED  
         if 'Link' in self.network_summary:
             dc_files = self._export_dc_branches(output_path)
             files_created.update(dc_files)
@@ -665,22 +665,36 @@ class PyPSAToSiennaExporter:
         logger.info(f"Exported {len(sienna_loads)} loads to {load_file}")
         return {'load': str(load_file)}
     
+    # Replace these methods in your PyPSAToSiennaExporter class
+
     def _export_branches(self, output_path: Path) -> Dict[str, str]:
-        """Export transmission lines and transformers."""
+        """Export transmission lines, transformers, and AC links as AC branches."""
         branches = []
         
+        # Add existing lines
         if hasattr(self.network, 'lines') and not self.network.lines.empty:
             lines_df = self.network.lines.copy()
             lines_df['component_type'] = 'Line'
             branches.append(lines_df)
         
+        # Add transformers
         if hasattr(self.network, 'transformers') and not self.network.transformers.empty:
             transformers_df = self.network.transformers.copy()
             transformers_df['component_type'] = 'Transformer'
             branches.append(transformers_df)
         
+        # Add AC links (filter out DC links)
+        if hasattr(self.network, 'links') and not self.network.links.empty:
+            ac_links = self._identify_ac_links()
+            if not ac_links.empty:
+                ac_links_df = ac_links.copy()
+                ac_links_df['component_type'] = 'AC_Link'
+                # Convert AC links to branch format
+                ac_links_df = self._convert_ac_links_to_branches(ac_links_df)
+                branches.append(ac_links_df)
+        
         if not branches:
-            logger.info("No branches to export")
+            logger.info("No AC branches to export")
             return {}
         
         all_branches = pd.concat(branches, ignore_index=False)
@@ -689,28 +703,168 @@ class PyPSAToSiennaExporter:
         sienna_branches['name'] = all_branches.index
         sienna_branches['connection_points_from'] = all_branches['bus0']
         sienna_branches['connection_points_to'] = all_branches['bus1']
-        sienna_branches['r'] = all_branches['r']
-        sienna_branches['x'] = all_branches['x']
+        
+        # Handle different component types - improved parameter handling
+        sienna_branches['r'] = all_branches.get('r', 0.01)  # Default small resistance for AC links
+        sienna_branches['x'] = all_branches.get('x', 0.1)   # Default reactance for AC links
         sienna_branches['b'] = all_branches.get('b', 0.0)
-        sienna_branches['rate'] = all_branches['s_nom']
+        
+        # For capacity limits - handle both s_nom and p_nom
+        if 's_nom' in all_branches.columns:
+            sienna_branches['rate'] = all_branches['s_nom']
+        elif 'p_nom' in all_branches.columns:
+            sienna_branches['rate'] = all_branches['p_nom']
+        else:
+            sienna_branches['rate'] = 1000.0  # Default rating
+        
         sienna_branches['tap'] = all_branches.get('tap_ratio', 1.0)
-        sienna_branches['shift'] = 0.0
+        sienna_branches['shift'] = all_branches.get('phase_shift', 0.0)
         sienna_branches['available'] = True
         sienna_branches['status'] = 1
         
         branch_file = output_path / 'branch.csv'
         sienna_branches.to_csv(branch_file, index=False)
         
-        logger.info(f"Exported {len(sienna_branches)} branches to {branch_file}")
+        # Log summary of what was exported
+        component_summary = all_branches['component_type'].value_counts().to_dict()
+        logger.info(f"Exported {len(sienna_branches)} AC branches to {branch_file}")
+        logger.info(f"AC Branch breakdown: {component_summary}")
+        
         return {'branch': str(branch_file)}
-    
-    def _export_dc_branches(self, output_path: Path) -> Dict[str, str]:
-        """Export DC transmission links."""
+
+    def _identify_ac_links(self) -> pd.DataFrame:
+        """Identify which links should be treated as AC transmission corridors."""
         links_df = self.network.links.copy()
         
         if links_df.empty:
+            return pd.DataFrame()
+        
+        # Method 1: Check for AC/DC indicators in the carrier or name
+        ac_indicators = ['ac', 'transmission', 'line', 'corridor', 'interconnector', 'interconnection']
+        dc_indicators = ['dc', 'hvdc', 'converter', 'cable', 'subsea']
+        
+        # Default assumption: if efficiency is very high (>0.98), likely AC
+        # If efficiency is lower, likely DC with converter losses
+        is_ac_link = links_df.get('efficiency', 1.0) > 0.98
+        
+        # Override based on carrier information
+        if 'carrier' in links_df.columns:
+            for idx, carrier in links_df['carrier'].items():
+                if pd.isna(carrier):
+                    continue
+                carrier_lower = str(carrier).lower()
+                if any(indicator in carrier_lower for indicator in dc_indicators):
+                    is_ac_link.loc[idx] = False
+                    logger.debug(f"Link {idx}: carrier '{carrier}' -> DC")
+                elif any(indicator in carrier_lower for indicator in ac_indicators):
+                    is_ac_link.loc[idx] = True
+                    logger.debug(f"Link {idx}: carrier '{carrier}' -> AC")
+        
+        # Override based on link name
+        for idx in links_df.index:
+            name_lower = str(idx).lower()
+            if any(indicator in name_lower for indicator in dc_indicators):
+                is_ac_link.loc[idx] = False
+                logger.debug(f"Link {idx}: name -> DC")
+            elif any(indicator in name_lower for indicator in ac_indicators):
+                is_ac_link.loc[idx] = True
+                logger.debug(f"Link {idx}: name -> AC")
+        
+        ac_links = links_df[is_ac_link]
+        dc_links = links_df[~is_ac_link]
+        
+        logger.info(f"Link classification: {len(ac_links)} AC links, {len(dc_links)} DC links")
+        
+        if len(ac_links) > 0:
+            logger.info(f"AC links: {list(ac_links.index)}")
+        if len(dc_links) > 0:
+            logger.info(f"DC links: {list(dc_links.index)}")
+        
+        # Store DC links for separate export
+        self._dc_links = dc_links
+        
+        return ac_links
+
+    def _convert_ac_links_to_branches(self, ac_links_df: pd.DataFrame) -> pd.DataFrame:
+        """Convert AC links to branch format with appropriate electrical parameters."""
+        
+        # Estimate electrical parameters for AC links
+        # If not provided, use typical values based on capacity and assume overhead lines
+        
+        if 'length' in ac_links_df.columns:
+            # Use length if available
+            lengths = ac_links_df['length']
+            logger.info("Using provided link lengths for electrical parameter estimation")
+        else:
+            # Estimate length from capacity (very rough approximation)
+            # Assume larger capacity links are shorter high-voltage lines
+            p_nom = ac_links_df.get('p_nom', 1000.0)
+            # Rough heuristic: 50km for large links, 200km for smaller ones
+            lengths = pd.Series(
+                np.where(p_nom > 2000, 50.0, 200.0), 
+                index=ac_links_df.index
+            )
+            logger.warning("No link lengths provided - using estimated lengths based on capacity")
+        
+        # Typical parameters per km for overhead transmission lines
+        # These are rough estimates - you may want to adjust based on your system
+        voltage_level = 400  # Assume 400kV for transmission corridors
+        
+        if voltage_level >= 400:
+            r_per_km = 0.025e-3  # Resistance in pu/km (400kV+)
+            x_per_km = 0.25e-3   # Reactance in pu/km
+            b_per_km = 4.0e-6    # Susceptance in pu/km
+        else:
+            r_per_km = 0.05e-3   # Higher resistance for lower voltage
+            x_per_km = 0.35e-3   # Higher reactance
+            b_per_km = 3.0e-6    # Lower susceptance
+        
+        # Apply electrical parameters if not already present
+        if 'r' not in ac_links_df.columns:
+            ac_links_df['r'] = lengths * r_per_km
+            logger.info("Estimated resistance values for AC links")
+        
+        if 'x' not in ac_links_df.columns:
+            ac_links_df['x'] = lengths * x_per_km
+            logger.info("Estimated reactance values for AC links")
+        
+        if 'b' not in ac_links_df.columns:
+            ac_links_df['b'] = lengths * b_per_km
+            logger.info("Estimated susceptance values for AC links")
+        
+        # Convert power rating to apparent power rating if needed
+        if 's_nom' not in ac_links_df.columns and 'p_nom' in ac_links_df.columns:
+            # Assume power factor of 0.95 for transmission lines
+            power_factor = 0.95
+            ac_links_df['s_nom'] = ac_links_df['p_nom'] / power_factor
+            logger.info(f"Converted p_nom to s_nom using power factor {power_factor}")
+        
+        # Log parameter summary
+        logger.info("AC link electrical parameters:")
+        logger.info(f"  R range: {ac_links_df['r'].min():.6f} - {ac_links_df['r'].max():.6f} pu")
+        logger.info(f"  X range: {ac_links_df['x'].min():.6f} - {ac_links_df['x'].max():.6f} pu")
+        logger.info(f"  B range: {ac_links_df['b'].min():.6f} - {ac_links_df['b'].max():.6f} pu")
+        
+        return ac_links_df
+
+    def _export_dc_branches(self, output_path: Path) -> Dict[str, str]:
+        """Export only true DC transmission links."""
+        
+        # Use the DC links identified in _identify_ac_links
+        # This method will be called after _export_branches, so _dc_links should exist
+        if not hasattr(self, '_dc_links'):
+            # Fallback: if _identify_ac_links wasn't called, treat all links as DC
+            logger.warning("DC links not pre-identified, falling back to all links")
+            if hasattr(self.network, 'links') and not self.network.links.empty:
+                self._dc_links = self.network.links.copy()
+            else:
+                self._dc_links = pd.DataFrame()
+        
+        if self._dc_links.empty:
             logger.info("No DC branches to export")
             return {}
+        
+        links_df = self._dc_links
         
         sienna_dc = pd.DataFrame(index=links_df.index)
         sienna_dc['name'] = links_df.index
@@ -718,7 +872,14 @@ class PyPSAToSiennaExporter:
         sienna_dc['connection_points_to'] = links_df['bus1']
         sienna_dc['active_power_limits_from'] = links_df['p_nom']
         sienna_dc['active_power_limits_to'] = links_df['p_nom']
-        sienna_dc['loss'] = 1.0 - links_df.get('efficiency', 1.0)
+        
+        # Calculate losses more carefully
+        efficiency = links_df.get('efficiency', 1.0)
+        # Ensure efficiency is between 0 and 1
+        efficiency = efficiency.clip(0.0, 1.0)
+        loss_factor = 1.0 - efficiency
+        
+        sienna_dc['loss'] = loss_factor
         sienna_dc['available'] = True
         sienna_dc['status'] = 1
         
@@ -726,7 +887,92 @@ class PyPSAToSiennaExporter:
         sienna_dc.to_csv(dc_file, index=False)
         
         logger.info(f"Exported {len(sienna_dc)} DC branches to {dc_file}")
+        if len(sienna_dc) > 0:
+            avg_loss = loss_factor.mean() * 100
+            logger.info(f"Average DC link losses: {avg_loss:.1f}%")
+        
         return {'dc_branch': str(dc_file)}
+
+    # Also add this method to help with configuration
+    def configure_link_classification(self, ac_link_names: List[str] = None, 
+                                    dc_link_names: List[str] = None,
+                                    efficiency_threshold: float = 0.98):
+        """
+        Configure link classification parameters.
+        
+        Parameters:
+        -----------
+        ac_link_names : List[str], optional
+            Explicit list of link names to treat as AC
+        dc_link_names : List[str], optional  
+            Explicit list of link names to treat as DC
+        efficiency_threshold : float, default 0.98
+            Efficiency threshold above which links are considered AC
+        """
+        self.ac_link_names = set(ac_link_names or [])
+        self.dc_link_names = set(dc_link_names or [])
+        self.efficiency_threshold = efficiency_threshold
+        
+        logger.info(f"Link classification configured:")
+        logger.info(f"  Explicit AC links: {len(self.ac_link_names)}")
+        logger.info(f"  Explicit DC links: {len(self.dc_link_names)}")
+        logger.info(f"  Efficiency threshold: {efficiency_threshold}")
+
+    # Modified _identify_ac_links to use configuration
+    def _identify_ac_links_with_config(self) -> pd.DataFrame:
+        """Enhanced version that uses configuration if available."""
+        links_df = self.network.links.copy()
+        
+        if links_df.empty:
+            return pd.DataFrame()
+        
+        # Start with efficiency-based classification
+        efficiency_threshold = getattr(self, 'efficiency_threshold', 0.98)
+        is_ac_link = links_df.get('efficiency', 1.0) > efficiency_threshold
+        
+        # Apply explicit classifications if configured
+        if hasattr(self, 'ac_link_names'):
+            for link_name in self.ac_link_names:
+                if link_name in links_df.index:
+                    is_ac_link.loc[link_name] = True
+                    logger.info(f"Explicitly classified {link_name} as AC")
+        
+        if hasattr(self, 'dc_link_names'):
+            for link_name in self.dc_link_names:
+                if link_name in links_df.index:
+                    is_ac_link.loc[link_name] = False
+                    logger.info(f"Explicitly classified {link_name} as DC")
+        
+        # Apply automatic classification for remaining links
+        ac_indicators = ['ac', 'transmission', 'line', 'corridor', 'interconnector', 'interconnection']
+        dc_indicators = ['dc', 'hvdc', 'converter', 'cable', 'subsea']
+        
+        # Check carrier information
+        if 'carrier' in links_df.columns:
+            for idx, carrier in links_df['carrier'].items():
+                if pd.isna(carrier):
+                    continue
+                carrier_lower = str(carrier).lower()
+                if any(indicator in carrier_lower for indicator in dc_indicators):
+                    is_ac_link.loc[idx] = False
+                elif any(indicator in carrier_lower for indicator in ac_indicators):
+                    is_ac_link.loc[idx] = True
+        
+        # Check link names
+        for idx in links_df.index:
+            name_lower = str(idx).lower()
+            if any(indicator in name_lower for indicator in dc_indicators):
+                is_ac_link.loc[idx] = False
+            elif any(indicator in name_lower for indicator in ac_indicators):
+                is_ac_link.loc[idx] = True
+        
+        ac_links = links_df[is_ac_link]
+        dc_links = links_df[~is_ac_link]
+        
+        logger.info(f"Final link classification: {len(ac_links)} AC links, {len(dc_links)} DC links")
+        
+        self._dc_links = dc_links
+        return ac_links
     
     def _export_storage(self, output_path: Path) -> Dict[str, str]:
         """Export energy storage systems."""
@@ -1151,14 +1397,39 @@ end
         logger.info(f"Created improved Julia import script: {julia_file}")
         return julia_file
 
-
 def export_pypsa_to_sienna(network: pypsa.Network, 
-                          scenario_setup: dict,
-                          output_dir: str,
-                          include_time_series: bool = True) -> Dict[str, str]:
+                                    scenario_setup: dict,
+                                    output_dir: str,
+                                    include_time_series: bool = True,
+                                    ac_link_names: List[str] = None,
+                                    dc_link_names: List[str] = None,
+                                    efficiency_threshold: float = 0.98) -> Dict[str, str]:
     """
-    IMPROVED: Export PyPSA network to PowerSystems.jl with enhanced validation.
+    Enhanced export function with link classification configuration.
+    
+    Parameters:
+    -----------
+    network : pypsa.Network
+        The PyPSA network to export
+    scenario_setup : dict
+        Scenario configuration
+    output_dir : str
+        Output directory for CSV files
+    include_time_series : bool, default True
+        Whether to export time series data
+    ac_link_names : List[str], optional
+        Explicit list of link names to treat as AC transmission corridors
+    dc_link_names : List[str], optional
+        Explicit list of link names to treat as DC links
+    efficiency_threshold : float, default 0.98
+        Efficiency threshold above which links are considered AC
+    
+    Returns:
+    --------
+    Dict[str, str]
+        Dictionary of created files
     """
+    
     # Enhanced validation before export
     validation = validate_pypsa_network(network)
     if not validation['is_valid']:
@@ -1172,8 +1443,20 @@ def export_pypsa_to_sienna(network: pypsa.Network,
         for warning in validation['warnings']:
             logger.warning(f"  {warning}")
     
-    # Create exporter and perform export
+    # Create exporter and configure link classification
     exporter = PyPSAToSiennaExporter(network, scenario_setup)
+    
+    # Configure link classification if parameters provided
+    if ac_link_names or dc_link_names or efficiency_threshold != 0.98:
+        exporter.configure_link_classification(
+            ac_link_names=ac_link_names,
+            dc_link_names=dc_link_names, 
+            efficiency_threshold=efficiency_threshold
+        )
+        # Use the configured version of the method
+        exporter._identify_ac_links = exporter._identify_ac_links_with_config
+    
+    # Perform export
     export_results = exporter.export_to_csv(output_dir, include_time_series)
     
     # Add comprehensive summary
@@ -1183,24 +1466,70 @@ def export_pypsa_to_sienna(network: pypsa.Network,
         'time_series_exported': include_time_series and len(exporter.time_series_metadata) > 0,
         'validation_status': validation,
         'powersystems_compatibility': 'PowerSystems.jl 4.6.2+',
+        'ac_dc_classification': {
+            'ac_links': len(getattr(exporter, '_dc_links', pd.DataFrame())) if hasattr(network, 'links') else 0,
+            'dc_links': len(network.links) - len(getattr(exporter, '_dc_links', pd.DataFrame())) if hasattr(network, 'links') else 0,
+            'classification_method': 'configured' if (ac_link_names or dc_link_names) else 'automatic'
+        },
         'improvements_applied': [
             'Enhanced fuel/prime mover mapping',
-            'Comprehensive data validation',
+            'Comprehensive data validation', 
             'Technology-specific parameters',
-            'NaN value detection and handling',
-            'Invalid data removal vs filling'
+            'AC/DC link classification',
+            'Proper PowerSystems.jl branch modeling'
         ]
     }
     
-    export_results['import_instructions'] = [
-        "IMPROVED PowerSystems.jl 4.6.2 Import Instructions:",
-        "1. Navigate to the export directory",
-        "2. Ensure Julia packages: julia> using Pkg; Pkg.add([\"PowerSystems\", \"PowerSimulations\", \"HiGHS\"])",
-        "3. Run: julia import_to_powersystems.jl",
-        "4. System includes enhanced validation and error detection"
-    ]
-    
     return export_results
+# def export_pypsa_to_sienna(network: pypsa.Network, 
+#                           scenario_setup: dict,
+#                           output_dir: str,
+#                           include_time_series: bool = True) -> Dict[str, str]:
+#     """
+#     IMPROVED: Export PyPSA network to PowerSystems.jl with enhanced validation.
+#     """
+#     # Enhanced validation before export
+#     validation = validate_pypsa_network(network)
+#     if not validation['is_valid']:
+#         logger.error("Network validation failed:")
+#         for issue in validation['issues']:
+#             logger.error(f"  {issue}")
+#         raise ValueError("Network validation failed - cannot export to PowerSystems.jl")
+    
+#     if validation.get('warnings'):
+#         logger.warning("Network validation warnings:")
+#         for warning in validation['warnings']:
+#             logger.warning(f"  {warning}")
+    
+#     # Create exporter and perform export
+#     exporter = PyPSAToSiennaExporter(network, scenario_setup)
+#     export_results = exporter.export_to_csv(output_dir, include_time_series)
+    
+#     # Add comprehensive summary
+#     export_results['export_summary'] = {
+#         'network_components': exporter.network_summary,
+#         'generator_details_loaded': bool(exporter.generator_details),
+#         'time_series_exported': include_time_series and len(exporter.time_series_metadata) > 0,
+#         'validation_status': validation,
+#         'powersystems_compatibility': 'PowerSystems.jl 4.6.2+',
+#         'improvements_applied': [
+#             'Enhanced fuel/prime mover mapping',
+#             'Comprehensive data validation',
+#             'Technology-specific parameters',
+#             'NaN value detection and handling',
+#             'Invalid data removal vs filling'
+#         ]
+#     }
+    
+#     export_results['import_instructions'] = [
+#         "IMPROVED PowerSystems.jl 4.6.2 Import Instructions:",
+#         "1. Navigate to the export directory",
+#         "2. Ensure Julia packages: julia> using Pkg; Pkg.add([\"PowerSystems\", \"PowerSimulations\", \"HiGHS\"])",
+#         "3. Run: julia import_to_powersystems.jl",
+#         "4. System includes enhanced validation and error detection"
+#     ]
+    
+#     return export_results
 
 def validate_pypsa_network(network) -> Dict[str, Any]:
     """

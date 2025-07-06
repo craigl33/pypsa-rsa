@@ -807,7 +807,7 @@ def mock_snakemake(rulename, **wildcards):
         
         # Create output paths for each year
         snakemake.output = [
-            f"networks/{folder}/elec/{scenario}/dispatch-{year}.nc" 
+            f"networks/{folder}/elec/dispatch-{year}.nc" 
             for year in dispatch_years
         ]
 
@@ -848,7 +848,8 @@ def mock_snakemake(rulename, **wildcards):
         
         # Outputs
         snakemake.output = FlexibleNamespace()
-        snakemake.output.sienna_export_dir = f"~/showcase/Sienna/networks/{folder}/{scenario}/dispatch-{year}/"
+        snakemake.output.sienna_export_complete = str(Path(f"~/showcase/Sienna/networks/{folder}/{scenario}/dispatch-{year}/").expanduser().resolve()) + "EXPORT_COMPLETE.geojson"
+        snakemake.output.sienna_export_dir = str(Path(f"~/showcase/Sienna/networks/{folder}/{scenario}/dispatch-{year}/").expanduser().resolve())
         
     else:
         """
@@ -914,6 +915,7 @@ def save_to_geojson(df, fn, crs = 'EPSG:4326'):
 
 def read_geojson(fn):
     # if the file is non-zero, read the geodataframe and return it
+    
     if os.path.getsize(fn) > 0:
         return gpd.read_file(fn)
     else:
