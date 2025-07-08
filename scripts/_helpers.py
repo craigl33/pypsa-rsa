@@ -848,8 +848,8 @@ def mock_snakemake(rulename, **wildcards):
         
         # Outputs
         snakemake.output = FlexibleNamespace()
-        snakemake.output.sienna_export_complete = str(Path(f"~/showcase/Sienna/networks/{folder}/{scenario}/dispatch-{year}/").expanduser().resolve()) + "EXPORT_COMPLETE.geojson"
-        snakemake.output.sienna_export_dir = str(Path(f"~/showcase/Sienna/networks/{folder}/{scenario}/dispatch-{year}/").expanduser().resolve())
+        snakemake.output.sienna_export_complete = str(Path(f"~/showcase/Sienna/networks/{folder}/dispatch_{year}/").expanduser().resolve()) + "EXPORT_COMPLETE.geojson"
+        snakemake.output.sienna_export_dir = str(Path(f"~/showcase/Sienna/networks/{folder}/dispatch_{year}/").expanduser().resolve())
         
     else:
         """

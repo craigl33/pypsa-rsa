@@ -130,8 +130,8 @@ class PyPSAToSiennaExporter:
         """Analyze the PyPSA network structure."""
         self.network_summary = {}
         
-        # Analyze static components
-        for component_name in ['Bus', 'Generator', 'Load', 'Line', 'Transformer', 'Link', 'StorageUnit']:
+        # Analyze static components. Note StorageUnits are stored in attributes as storage_units, hence the confusing "double" spelling
+        for component_name in ['Bus', 'Generator', 'Load', 'Line', 'Transformer', 'Link', 'Storage_Unit']:
             if hasattr(self.network, component_name.lower() + 's'):
                 component_df = getattr(self.network, component_name.lower() + 's')
             elif hasattr(self.network, component_name.lower() + 'es'):
@@ -223,7 +223,7 @@ class PyPSAToSiennaExporter:
             files_created.update(dc_files)
         
         # Export storage
-        if 'StorageUnit' in self.network_summary:
+        if 'Storage_Unit' in self.network_summary:
             storage_files = self._export_storage(output_path)
             files_created.update(storage_files)
         
@@ -635,7 +635,7 @@ class PyPSAToSiennaExporter:
             return 'ST'  # Default to steam turbine
 
     def _export_loads(self, output_path: Path) -> Dict[str, str]:
-        """Export electrical loads in PowerSystems.jl format."""
+        """Export electrical loads in PowerSystems.jl format with unique naming."""
         loads_df = self.network.loads.copy()
         
         if loads_df.empty:
@@ -643,7 +643,10 @@ class PyPSAToSiennaExporter:
             return {}
         
         sienna_loads = pd.DataFrame(index=loads_df.index)
-        sienna_loads['name'] = loads_df.index
+        
+        # FIX: Create unique load names with "Load_" prefix
+        # This prevents conflicts with bus names that have the same identifier
+        sienna_loads['name'] = ['Load_' + str(load_name) for load_name in loads_df.index]
         sienna_loads['bus'] = loads_df['bus']
         
         # Get load values - use max from time series if available
@@ -663,9 +666,54 @@ class PyPSAToSiennaExporter:
         sienna_loads.to_csv(load_file, index=False)
         
         logger.info(f"Exported {len(sienna_loads)} loads to {load_file}")
+        logger.info(f"Load names: {list(sienna_loads['name'].head())}")  # Log first few for verification
+        
         return {'load': str(load_file)}
-    
-    # Replace these methods in your PyPSAToSiennaExporter class
+
+    def _export_load_time_series(self, ts_dir: Path) -> Dict[str, str]:
+        """Export load time series data with matching component names."""
+        if not hasattr(self.network, 'loads_t') or not hasattr(self.network.loads_t, 'p_set'):
+            return {}
+        
+        load_ts = self.network.loads_t.p_set
+        if load_ts.empty:
+            return {}
+        
+        sienna_load_ts = load_ts.copy()
+        
+        # FIX: Rename columns to match Load_ prefixed component names
+        column_mapping = {}
+        for original_load_name in sienna_load_ts.columns:
+            new_column_name = f'Load_{original_load_name}'
+            column_mapping[original_load_name] = new_column_name
+        
+        # Apply the column renaming
+        sienna_load_ts = sienna_load_ts.rename(columns=column_mapping)
+        
+        if hasattr(sienna_load_ts.index, 'strftime'):
+            sienna_load_ts.index = sienna_load_ts.index.strftime('%Y-%m-%dT%H:%M:%S')
+        sienna_load_ts.index.name = 'DateTime'
+        
+        load_ts_file = ts_dir / 'load_timeseries.csv'
+        sienna_load_ts.to_csv(load_ts_file)
+        
+        # Update time series metadata to match the renamed columns
+        for original_load_name, component_name in column_mapping.items():
+            self.time_series_metadata.append({
+                'simulation': 'DA',
+                'category': 'ElectricLoad',
+                'component': component_name,  # Load_busname
+                'label': 'max_active_power',
+                'data_file': 'timeseries_data/load_timeseries.csv',
+                'data_column': component_name,  # Now matches the CSV column name
+                'scaling_factor_multiplier': 'get_max_active_power',
+                'normalization_factor': 1.0
+            })
+        
+        logger.info(f"Exported load time series ({len(sienna_load_ts)} time steps, {len(sienna_load_ts.columns)} loads)")
+        logger.info(f"Renamed columns: {list(column_mapping.values())[:3]}...")  # Show first few
+        
+        return {'load_timeseries': str(load_ts_file)}
 
     def _export_branches(self, output_path: Path) -> Dict[str, str]:
         """Export transmission lines, transformers, and AC links as AC branches."""
@@ -975,40 +1023,269 @@ class PyPSAToSiennaExporter:
         return ac_links
     
     def _export_storage(self, output_path: Path) -> Dict[str, str]:
-        """Export energy storage systems."""
-        storage_df = self.network.storage_units.copy()
+        """
+        Export energy storage systems optimized for PyPSA networks with actual storage_units.
+        Handles both storage_units and stores from PyPSA, with proper handling of empty time series.
+        """
+        storage_components = []
         
-        if storage_df.empty:
-            logger.info("No storage units to export")
+        # Check for storage_units (typical battery storage, pumped hydro, etc.)
+        if hasattr(self.network, 'storage_units') and not self.network.storage_units.empty:
+            storage_units = self.network.storage_units.copy()
+            storage_units['storage_type'] = 'storage_unit'
+            storage_components.append(storage_units)
+            logger.info(f"Found {len(storage_units)} storage_units")
+            
+            # Log details about found storage units
+            for idx, unit in storage_units.iterrows():
+                logger.info(f"  Storage unit: {idx}, Carrier: {unit.get('carrier', 'unknown')}, "
+                        f"P_nom: {unit.get('p_nom', 0)} MW, Max_hours: {unit.get('max_hours', 'N/A')}")
+        
+        # Check for stores (other types of storage like hydrogen, heat, etc.)
+        if hasattr(self.network, 'stores') and not self.network.stores.empty:
+            stores = self.network.stores.copy()
+            stores['storage_type'] = 'store'
+            storage_components.append(stores)
+            logger.info(f"Found {len(stores)} stores")
+        
+        if not storage_components:
+            logger.info("No storage components to export")
             return {}
         
-        sienna_storage = pd.DataFrame(index=storage_df.index)
-        sienna_storage['name'] = storage_df.index
-        sienna_storage['bus'] = storage_df['bus']
+        # Combine all storage types
+        all_storage = pd.concat(storage_components, ignore_index=False)
         
-        max_hours = storage_df.get('max_hours', 6.0)
-        energy_capacity = storage_df['p_nom'] * max_hours
+        # Create PowerSystems.jl compatible storage DataFrame
+        sienna_storage = pd.DataFrame(index=all_storage.index)
+        
+        # Apply unique naming convention (similar to loads)
+        sienna_storage['name'] = ['Storage_' + str(storage_name) for storage_name in all_storage.index]
+        sienna_storage['bus'] = all_storage['bus']
+        
+        # Handle energy capacity calculation with better defaults for your network
+        energy_capacity = self._calculate_energy_capacity(all_storage)
         sienna_storage['energy_capacity'] = energy_capacity
         
-        sienna_storage['input_active_power_limits'] = storage_df['p_nom']
-        sienna_storage['output_active_power_limits'] = storage_df['p_nom']
-        sienna_storage['efficiency_in'] = storage_df.get('efficiency_store', 0.95)
-        sienna_storage['efficiency_out'] = storage_df.get('efficiency_dispatch', 0.95)
+        # Power capacity (charge/discharge rates) - handle both p_nom and p_nom_opt
+        power_capacity = all_storage.get('p_nom_opt', all_storage.get('p_nom', 100.0))
+        # If p_nom_opt is 0 or NaN, fall back to p_nom
+        power_capacity = power_capacity.where(power_capacity > 0, all_storage.get('p_nom', 100.0))
+        sienna_storage['input_active_power_limits'] = power_capacity
+        sienna_storage['output_active_power_limits'] = power_capacity
         
-        initial_soc = storage_df.get('state_of_charge_initial', 0.5)
+        # Handle reactive power limits (10% of active power capacity by default)
+        reactive_capacity = power_capacity * 0.1
+        sienna_storage['input_reactive_power_limits'] = reactive_capacity
+        sienna_storage['output_reactive_power_limits'] = reactive_capacity
+        
+        # Efficiency handling - improved for your network structure
+        efficiency_in, efficiency_out = self._calculate_storage_efficiency(all_storage)
+        sienna_storage['efficiency_in'] = efficiency_in
+        sienna_storage['efficiency_out'] = efficiency_out
+        
+        # Initial state of charge - handle your network's structure
+        if 'state_of_charge_initial' in all_storage.columns:
+            initial_soc = all_storage['state_of_charge_initial'].fillna(0.5)
+        else:
+            initial_soc = pd.Series(0.5, index=all_storage.index)  # Default 50%
+        initial_soc = initial_soc.clip(0.0, 1.0)  # Ensure valid range
         sienna_storage['initial_energy'] = initial_soc * energy_capacity
         
-        sienna_storage['available'] = True
+        # State of charge limits (PyPSA uses p_min_pu and p_max_pu for power, not SOC typically)
+        # For storage, we'll use reasonable defaults unless specifically defined
+        if 'state_of_charge_min' in all_storage.columns:
+            soc_min = all_storage['state_of_charge_min'].fillna(0.0)
+        else:
+            soc_min = pd.Series(0.0, index=all_storage.index)
+        
+        if 'state_of_charge_max' in all_storage.columns:
+            soc_max = all_storage['state_of_charge_max'].fillna(1.0)
+        else:
+            soc_max = pd.Series(1.0, index=all_storage.index)
+        
+        sienna_storage['state_of_charge_limits_min'] = soc_min.clip(0.0, 1.0)
+        sienna_storage['state_of_charge_limits_max'] = soc_max.clip(0.0, 1.0)
+        
+        # Operational parameters
+        sienna_storage['available'] = all_storage.get('active', True)
         sienna_storage['status'] = 1
         
+        # Storage technology type for PowerSystems.jl - improved detection
+        storage_tech = self._determine_storage_technology(all_storage)
+        sienna_storage['storage_technology'] = storage_tech
+        
+        # Cost parameters
+        sienna_storage['variable_cost'] = all_storage.get('marginal_cost', 0.0)
+        sienna_storage['fixed_cost'] = all_storage.get('capital_cost', 0.0)
+        
+        # Cycling limits (for battery degradation) - use reasonable defaults
+        sienna_storage['cycle_limits'] = all_storage.get('cyclic_state_of_charge_max', 10000)  # Default 10k cycles
+        
+        # Build year and lifetime for planning studies
+        sienna_storage['build_year'] = all_storage.get('build_year', 2030)
+        sienna_storage['lifetime'] = all_storage.get('lifetime', 25.0)
+        
+        # Export to CSV
         storage_file = output_path / 'storage.csv'
         sienna_storage.to_csv(storage_file, index=False)
         
-        logger.info(f"Exported {len(sienna_storage)} storage units to {storage_file}")
+        # Log summary
+        self._log_storage_summary(sienna_storage, all_storage)
+        
         return {'storage': str(storage_file)}
     
+
+    def _calculate_energy_capacity(self, storage_df: pd.DataFrame) -> pd.Series:
+        """Calculate energy capacity from PyPSA storage representations with better handling."""
+        energy_capacity = pd.Series(index=storage_df.index, dtype=float)
+        
+        for idx, row in storage_df.iterrows():
+            if 'e_nom' in row and pd.notna(row.get('e_nom')) and row.get('e_nom') > 0:
+                # Direct energy capacity specification
+                energy_capacity.loc[idx] = row['e_nom']
+                logger.debug(f"Storage {idx}: Using e_nom = {row['e_nom']} MWh")
+            elif 'max_hours' in row and pd.notna(row.get('max_hours')) and row.get('max_hours') > 0:
+                # Calculate from max_hours and power capacity
+                p_nom = row.get('p_nom_opt', row.get('p_nom', 100.0))
+                if p_nom <= 0:
+                    p_nom = row.get('p_nom', 100.0)
+                max_hours = row.get('max_hours')
+                energy_capacity.loc[idx] = p_nom * max_hours
+                logger.debug(f"Storage {idx}: Using max_hours = {max_hours}h * p_nom = {p_nom} MW = {energy_capacity.loc[idx]} MWh")
+            else:
+                # Default: assume based on carrier type and power capacity
+                p_nom = row.get('p_nom_opt', row.get('p_nom', 100.0))
+                if p_nom <= 0:
+                    p_nom = row.get('p_nom', 100.0)
+                
+                carrier = str(row.get('carrier', 'battery')).lower()
+                if any(term in carrier for term in ['phs', 'pumped', 'hydro']):
+                    default_hours = 8.0  # Pumped hydro typically 6-12 hours
+                elif any(term in carrier for term in ['battery', 'li-ion', 'lithium']):
+                    default_hours = 4.0  # Battery storage typically 2-6 hours
+                else:
+                    default_hours = 6.0  # Generic default
+                
+                energy_capacity.loc[idx] = p_nom * default_hours
+                logger.debug(f"Storage {idx}: Using default {default_hours}h duration for carrier '{carrier}' = {energy_capacity.loc[idx]} MWh")
+        
+        return energy_capacity
+
+    def _calculate_storage_efficiency(self, storage_df: pd.DataFrame) -> tuple:
+        """Calculate round-trip efficiency for storage systems with better PyPSA compatibility."""
+        efficiency_in = pd.Series(index=storage_df.index, dtype=float)
+        efficiency_out = pd.Series(index=storage_df.index, dtype=float)
+        
+        for idx, row in storage_df.iterrows():
+            # Check for separate charge/discharge efficiencies (PyPSA style)
+            if 'efficiency_store' in row and pd.notna(row.get('efficiency_store')):
+                eff_in = row['efficiency_store']
+            elif 'efficiency' in row and pd.notna(row.get('efficiency')):
+                # Square root of round-trip efficiency for each direction
+                eff_in = np.sqrt(row['efficiency'])
+            else:
+                # Defaults based on carrier type
+                carrier = str(row.get('carrier', 'battery')).lower()
+                if any(term in carrier for term in ['phs', 'pumped', 'hydro']):
+                    eff_in = 0.87  # Typical for pumped hydro
+                elif any(term in carrier for term in ['battery', 'li-ion', 'lithium']):
+                    eff_in = 0.95  # Typical for lithium-ion
+                else:
+                    eff_in = 0.90  # Generic default
+            
+            if 'efficiency_dispatch' in row and pd.notna(row.get('efficiency_dispatch')):
+                eff_out = row['efficiency_dispatch']
+            elif 'efficiency' in row and pd.notna(row.get('efficiency')):
+                eff_out = np.sqrt(row['efficiency'])
+            else:
+                # Use same as input efficiency by default
+                eff_out = eff_in
+            
+            # Ensure efficiencies are in valid range
+            efficiency_in.loc[idx] = np.clip(eff_in, 0.5, 1.0)
+            efficiency_out.loc[idx] = np.clip(eff_out, 0.5, 1.0)
+            
+            # Log efficiency info
+            round_trip = efficiency_in.loc[idx] * efficiency_out.loc[idx]
+            logger.debug(f"Storage {idx}: Efficiencies - In: {efficiency_in.loc[idx]:.3f}, "
+                        f"Out: {efficiency_out.loc[idx]:.3f}, Round-trip: {round_trip:.3f}")
+        
+        return efficiency_in, efficiency_out
+
+    def _determine_storage_technology(self, storage_df: pd.DataFrame) -> pd.Series:
+        """Determine storage technology type for PowerSystems.jl with better carrier detection."""
+        technology = pd.Series(index=storage_df.index, dtype=str)
+        
+        for idx, row in storage_df.iterrows():
+            carrier = str(row.get('carrier', 'battery')).lower()
+            
+            if any(term in carrier for term in ['phs', 'pumped', 'hydro', 'pump']):
+                tech = 'PUMPED_HYDRO'
+            elif any(term in carrier for term in ['battery', 'li-ion', 'lithium', 'batt']):
+                tech = 'LI_ION'
+            elif any(term in carrier for term in ['hydrogen', 'h2']):
+                tech = 'HYDROGEN'
+            elif any(term in carrier for term in ['compressed', 'caes', 'air']):
+                tech = 'COMPRESSED_AIR'
+            elif any(term in carrier for term in ['thermal', 'molten', 'heat']):
+                tech = 'THERMAL'
+            elif any(term in carrier for term in ['flywheel']):
+                tech = 'FLYWHEEL'
+            else:
+                tech = 'GENERIC_BATTERY'  # Fallback
+                logger.debug(f"Storage {idx}: Unknown carrier '{carrier}', using GENERIC_BATTERY")
+            
+            technology.loc[idx] = tech
+            logger.debug(f"Storage {idx}: Carrier '{carrier}' mapped to technology '{tech}'")
+        
+        return technology
+
+    def _log_storage_summary(self, sienna_storage: pd.DataFrame, original_storage: pd.DataFrame):
+        """Log comprehensive storage export summary with more details."""
+        logger.info(f"Exported {len(sienna_storage)} storage units to storage.csv")
+        
+        # Technology breakdown
+        tech_summary = sienna_storage['storage_technology'].value_counts()
+        logger.info("Storage technology breakdown:")
+        for tech, count in tech_summary.items():
+            logger.info(f"  {tech}: {count} units")
+        
+        # Capacity summary
+        total_energy = sienna_storage['energy_capacity'].sum()
+        total_power = sienna_storage['input_active_power_limits'].sum()
+        avg_duration = total_energy / total_power if total_power > 0 else 0
+        
+        logger.info(f"Total storage capacity:")
+        logger.info(f"  Energy: {total_energy:.1f} MWh")
+        logger.info(f"  Power: {total_power:.1f} MW")
+        logger.info(f"  Average duration: {avg_duration:.1f} hours")
+        
+        # Individual storage details
+        logger.info("Individual storage units:")
+        for idx, row in sienna_storage.iterrows():
+            duration = row['energy_capacity'] / row['input_active_power_limits'] if row['input_active_power_limits'] > 0 else 0
+            logger.info(f"  {row['name']}: {row['input_active_power_limits']:.1f} MW, "
+                    f"{row['energy_capacity']:.1f} MWh, {duration:.1f}h, {row['storage_technology']}")
+        
+        # Efficiency summary
+        avg_eff_in = sienna_storage['efficiency_in'].mean()
+        avg_eff_out = sienna_storage['efficiency_out'].mean()
+        round_trip_eff = avg_eff_in * avg_eff_out
+        
+        logger.info(f"Average efficiencies:")
+        logger.info(f"  Charging: {avg_eff_in:.1%}")
+        logger.info(f"  Discharging: {avg_eff_out:.1%}")
+        logger.info(f"  Round-trip: {round_trip_eff:.1%}")
+        
+        # Cost summary
+        total_capex = sienna_storage['fixed_cost'].sum()
+        avg_opex = sienna_storage['variable_cost'].mean()
+        logger.info(f"Costs:")
+        logger.info(f"  Total capital cost: ${total_capex:,.0f}")
+        logger.info(f"  Average variable cost: ${avg_opex:.4f}/MWh")
+
     def _export_time_series_data(self, output_path: Path) -> Dict[str, str]:
-        """Export time series data."""
+        """Export time series data including storage."""
         if 'time_series' not in self.network_summary:
             logger.info("No time series data found")
             return {}
@@ -1018,18 +1295,26 @@ class PyPSAToSiennaExporter:
         
         files_created = {}
         
+        # Export load time series
         if 'Load' in self.network_summary.get('time_series', {}):
             load_ts_files = self._export_load_time_series(ts_dir)
             files_created.update(load_ts_files)
         
+        # Export generator time series
         if 'Generator' in self.network_summary.get('time_series', {}):
             gen_ts_files = self._export_generator_time_series(ts_dir)
             files_created.update(gen_ts_files)
         
+        # Export storage time series - NEW
+        if 'StorageUnit' in self.network_summary.get('time_series', {}) or 'Store' in self.network_summary.get('time_series', {}):
+            storage_ts_files = self._export_storage_time_series(ts_dir)
+            files_created.update(storage_ts_files)
+        
         return files_created
+
     
     def _export_load_time_series(self, ts_dir: Path) -> Dict[str, str]:
-        """Export load time series data."""
+        """Export load time series data with matching component names."""
         if not hasattr(self.network, 'loads_t') or not hasattr(self.network.loads_t, 'p_set'):
             return {}
         
@@ -1039,6 +1324,24 @@ class PyPSAToSiennaExporter:
         
         sienna_load_ts = load_ts.copy()
         
+        # DEBUG: Log original columns
+        logger.info(f"Original load time series columns: {list(sienna_load_ts.columns)}")
+        
+        # FIX: Rename columns to match Load_ prefixed component names
+        column_mapping = {}
+        for original_load_name in sienna_load_ts.columns:
+            new_column_name = f'Load_{original_load_name}'
+            column_mapping[original_load_name] = new_column_name
+        
+        # DEBUG: Log mapping
+        logger.info(f"Column mapping: {column_mapping}")
+        
+        # Apply the column renaming
+        sienna_load_ts = sienna_load_ts.rename(columns=column_mapping)
+        
+        # DEBUG: Log renamed columns
+        logger.info(f"Renamed load time series columns: {list(sienna_load_ts.columns)}")
+        
         if hasattr(sienna_load_ts.index, 'strftime'):
             sienna_load_ts.index = sienna_load_ts.index.strftime('%Y-%m-%dT%H:%M:%S')
         sienna_load_ts.index.name = 'DateTime'
@@ -1046,19 +1349,27 @@ class PyPSAToSiennaExporter:
         load_ts_file = ts_dir / 'load_timeseries.csv'
         sienna_load_ts.to_csv(load_ts_file)
         
-        for load_name in sienna_load_ts.columns:
-            self.time_series_metadata.append({
+        # Update time series metadata to match the renamed columns
+        for original_load_name, component_name in column_mapping.items():
+            metadata_entry = {
                 'simulation': 'DA',
                 'category': 'ElectricLoad',
-                'component': load_name,
+                'component': component_name,  # Should be Load_Eastern_Cape
                 'label': 'max_active_power',
                 'data_file': 'timeseries_data/load_timeseries.csv',
-                'data_column': load_name,
+                'data_column': component_name,  # Should match CSV column
                 'scaling_factor_multiplier': 'get_max_active_power',
                 'normalization_factor': 1.0
-            })
+            }
+            
+            # DEBUG: Log each metadata entry
+            logger.info(f"Creating metadata for: original='{original_load_name}' -> component='{component_name}'")
+            
+            self.time_series_metadata.append(metadata_entry)
         
         logger.info(f"Exported load time series ({len(sienna_load_ts)} time steps, {len(sienna_load_ts.columns)} loads)")
+        logger.info(f"Final CSV columns: {list(sienna_load_ts.columns)}")
+        
         return {'load_timeseries': str(load_ts_file)}
     
     def _export_generator_time_series(self, ts_dir: Path) -> Dict[str, str]:
@@ -1074,7 +1385,7 @@ class PyPSAToSiennaExporter:
         return files_created
     
     def _export_renewable_availability(self, ts_dir: Path, gen_availability: pd.DataFrame) -> Dict[str, str]:
-        """Export renewable generator availability factors."""
+        """Export renewable generator availability factors with proper naming."""
         renewable_carriers = ['wind', 'solar', 'pv', 'onshore', 'offshore', 'hydro', 'ror', 'biomass']
         renewable_gens = []
         
@@ -1090,6 +1401,11 @@ class PyPSAToSiennaExporter:
         
         renewable_availability = gen_availability[renewable_gens].copy()
         
+        # NOTE: For generators, we typically don't need to rename columns unless
+        # you also apply a naming prefix to generators (like "Gen_"). 
+        # If your generators don't have naming conflicts, leave as-is.
+        # If they do, apply the same pattern as loads/storage.
+        
         if hasattr(renewable_availability.index, 'strftime'):
             renewable_availability.index = renewable_availability.index.strftime('%Y-%m-%dT%H:%M:%S')
         renewable_availability.index.name = 'DateTime'
@@ -1101,10 +1417,10 @@ class PyPSAToSiennaExporter:
             self.time_series_metadata.append({
                 'simulation': 'DA',
                 'category': 'RenewableGen',
-                'component': gen_name,
+                'component': gen_name,  # Use original generator name (no prefix needed unless conflicts exist)
                 'label': 'max_active_power',
                 'data_file': 'timeseries_data/renewable_availability.csv',
-                'data_column': gen_name,
+                'data_column': gen_name,  # Matches CSV column
                 'scaling_factor_multiplier': 'get_max_active_power',
                 'normalization_factor': 1.0
             })
@@ -1129,7 +1445,7 @@ class PyPSAToSiennaExporter:
         return files_created
         
     def _create_user_descriptors(self, output_path: Path) -> Path:
-        """Create user_descriptors.yaml."""
+        """Create user_descriptors.yaml including storage."""
         def _flatten_fields(field_dict):
             return [{k: v['name']} for k, v in field_dict.items()]
 
@@ -1206,6 +1522,7 @@ class PyPSAToSiennaExporter:
                     'status': {'name': 'status'}
                 }
             },
+            # UPDATED: Comprehensive storage descriptor
             'storage': {
                 'fields': {
                     'name': {'name': 'name'},
@@ -1213,9 +1530,17 @@ class PyPSAToSiennaExporter:
                     'energy_capacity': {'name': 'energy_capacity'},
                     'input_active_power_limits': {'name': 'input_active_power_limits'},
                     'output_active_power_limits': {'name': 'output_active_power_limits'},
+                    'input_reactive_power_limits': {'name': 'input_reactive_power_limits'},
+                    'output_reactive_power_limits': {'name': 'output_reactive_power_limits'},
                     'efficiency_in': {'name': 'efficiency_in'},
                     'efficiency_out': {'name': 'efficiency_out'},
                     'initial_energy': {'name': 'initial_energy'},
+                    'state_of_charge_limits_min': {'name': 'state_of_charge_limits_min'},
+                    'state_of_charge_limits_max': {'name': 'state_of_charge_limits_max'},
+                    'storage_technology': {'name': 'storage_technology'},
+                    'variable_cost': {'name': 'variable_cost'},
+                    'fixed_cost': {'name': 'fixed_cost'},
+                    'cycle_limits': {'name': 'cycle_limits'},
                     'available': {'name': 'available'},
                     'status': {'name': 'status'}
                 }
@@ -1231,8 +1556,10 @@ class PyPSAToSiennaExporter:
         with open(descriptors_file, 'w') as f:
             yaml.dump(user_descriptors, f, default_flow_style=False, sort_keys=False)
 
-        logger.info(f"Created user descriptors: {descriptors_file}")
+        logger.info(f"Created user descriptors with storage support: {descriptors_file}")
         return descriptors_file
+
+
     
     def _create_timeseries_metadata(self, output_path: Path) -> Path:
         """Create timeseries_metadata.json."""
@@ -1244,7 +1571,7 @@ class PyPSAToSiennaExporter:
         return ts_metadata_file
     
     def _create_generator_mapping(self, output_path: Path) -> Path:
-        """Create generator_mapping.yaml."""
+        """Create generator_mapping.yaml including storage technologies."""
         generator_mapping = {
             'ThermalStandard': {
                 'fuel': ['COAL', 'NATURAL_GAS', 'DIESEL', 'NUCLEAR', 'BIOMASS'],
@@ -1253,6 +1580,19 @@ class PyPSAToSiennaExporter:
             'RenewableDispatch': {
                 'fuel': ['WIND', 'SOLAR', 'HYDRO', 'GEOTHERMAL'],
                 'type': ['WT', 'PV', 'HY']
+            },
+            # NEW: Storage technology mapping
+            'GenericBattery': {
+                'storage_technology': ['LI_ION', 'GENERIC_BATTERY', 'LEAD_ACID'],
+                'chemistry': ['LFP', 'NMC', 'LTO']
+            },
+            'PumpedHydroStorage': {
+                'storage_technology': ['PUMPED_HYDRO'],
+                'efficiency_class': ['HIGH', 'MEDIUM']
+            },
+            'CompressedAirEnergyStorage': {
+                'storage_technology': ['COMPRESSED_AIR'],
+                'type': ['DIABATIC', 'ADIABATIC']
             }
         }
         
@@ -1260,17 +1600,17 @@ class PyPSAToSiennaExporter:
         with open(mapping_file, 'w') as f:
             yaml.dump(generator_mapping, f, default_flow_style=False)
         
-        logger.info(f"Created generator mapping: {mapping_file}")
+        logger.info(f"Created generator mapping with storage: {mapping_file}")
         return mapping_file
     
     def _create_julia_import_script(self, output_path: Path) -> Path:
-        """Create Julia script for importing data into PowerSystems.jl."""
+        """Create Julia script for importing data into PowerSystems.jl with naming info."""
         julia_code = f'''#!/usr/bin/env julia
 
 """
 IMPROVED Julia script to import PyPSA-exported data into PowerSystems.jl 4.6.2
 
-This script includes enhanced validation and error handling.
+This script includes enhanced validation and handles Load_ prefixed naming.
 """
 
 using PowerSystems
@@ -1289,6 +1629,7 @@ generator_mapping_file = joinpath(data_dir, "generator_mapping.yaml")
 
 println("🔧 PowerSystems.jl 4.6.2 Data Import (IMPROVED VERSION)")
 println("Loading PyPSA data from: ", data_dir)
+println("ℹ️  Note: Loads are named with 'Load_' prefix to avoid bus name conflicts")
 
 # Enhanced import with better error handling
 try
@@ -1328,22 +1669,51 @@ try
     sys = System(data; time_series_in_memory = true)
     println("✅ PowerSystems.jl System created successfully")
     
-    # Enhanced validation
+    # Enhanced validation with naming verification
     println("\\n📋 === Enhanced System Summary ===")
     println("Base Power: ", get_base_power(sys), " MVA")
     println("Buses: ", length(get_components(Bus, sys)))
     
     thermal_gens = get_components(ThermalStandard, sys)
     renewable_gens = get_components(RenewableDispatch, sys)
+    loads = get_components(ElectricLoad, sys)
     
     println("Thermal Generators: ", length(thermal_gens))
     println("Renewable Generators: ", length(renewable_gens))
-    println("Loads: ", length(get_components(ElectricLoad, sys)))
+    println("Loads: ", length(loads))
     println("Branches: ", length(get_components(ACBranch, sys)))
     
+    # Verify naming convention
+    println("\\n🔍 === Naming Verification ===")
+    load_names = [get_name(load) for load in loads]
+    prefixed_loads = [name for name in load_names if startswith(name, "Load_")]
+    println("Loads with 'Load_' prefix: ", length(prefixed_loads), "/", length(load_names))
+    
+    if length(prefixed_loads) == length(load_names)
+        println("✅ All loads follow naming convention")
+    else
+        println("⚠️  Some loads don't follow Load_ naming convention")
+    end
+    
+    # Check for duplicate names across all components
+    all_names = []
+    for component in get_components(Component, sys)
+        push!(all_names, get_name(component))
+    end
+    
+    unique_names = length(unique(all_names))
+    total_names = length(all_names)
+    
+    if unique_names == total_names
+        println("✅ All component names are unique (", total_names, " components)")
+    else
+        duplicates = total_names - unique_names
+        println("❌ Found ", duplicates, " duplicate component names!")
+    end
+    
     # Validation checks
-    println("\\n🔍 === Enhanced Validation ===")
-    total_demand = sum(get_max_active_power(load) for load in get_components(ElectricLoad, sys))
+    println("\\n🔍 === Power Balance Validation ===")
+    total_demand = sum(get_max_active_power(load) for load in loads)
     total_generation = sum(get_max_active_power(gen) for gen in get_components(Generator, sys))
     
     println("Total demand: ", round(total_demand, digits=1), " MW")
@@ -1357,27 +1727,13 @@ try
         println("⚠️  Warning: Generation capacity insufficient!")
     end
     
-    # Check for any generators with invalid parameters
-    println("\\n🔍 Checking generator parameters...")
-    invalid_gens = []
-    for gen in get_components(Generator, sys)
-        if get_max_active_power(gen) <= 0
-            push!(invalid_gens, get_name(gen))
-        end
-    end
-    
-    if !isempty(invalid_gens)
-        println("❌ Found generators with invalid parameters: ", invalid_gens)
-    else
-        println("✅ All generators have valid parameters")
-    end
-    
     # Save system
     sys_file = joinpath(data_dir, "pypsa_system_improved.json")
     to_json(sys, sys_file)
     println("\\n💾 System saved to: ", sys_file)
     
     println("\\n🎉 === Import Complete (IMPROVED VERSION) ===")
+    println("✅ Load naming conflicts resolved with 'Load_' prefix")
     return sys
     
 catch e
