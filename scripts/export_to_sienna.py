@@ -670,50 +670,6 @@ class PyPSAToSiennaExporter:
         
         return {'load': str(load_file)}
 
-    def _export_load_time_series(self, ts_dir: Path) -> Dict[str, str]:
-        """Export load time series data with matching component names."""
-        if not hasattr(self.network, 'loads_t') or not hasattr(self.network.loads_t, 'p_set'):
-            return {}
-        
-        load_ts = self.network.loads_t.p_set
-        if load_ts.empty:
-            return {}
-        
-        sienna_load_ts = load_ts.copy()
-        
-        # FIX: Rename columns to match Load_ prefixed component names
-        column_mapping = {}
-        for original_load_name in sienna_load_ts.columns:
-            new_column_name = f'Load_{original_load_name}'
-            column_mapping[original_load_name] = new_column_name
-        
-        # Apply the column renaming
-        sienna_load_ts = sienna_load_ts.rename(columns=column_mapping)
-        
-        if hasattr(sienna_load_ts.index, 'strftime'):
-            sienna_load_ts.index = sienna_load_ts.index.strftime('%Y-%m-%dT%H:%M:%S')
-        sienna_load_ts.index.name = 'DateTime'
-        
-        load_ts_file = ts_dir / 'load_timeseries.csv'
-        sienna_load_ts.to_csv(load_ts_file)
-        
-        # Update time series metadata to match the renamed columns
-        for original_load_name, component_name in column_mapping.items():
-            self.time_series_metadata.append({
-                'simulation': 'DA',
-                'category': 'ElectricLoad',
-                'component': component_name,  # Load_busname
-                'label': 'max_active_power',
-                'data_file': 'timeseries_data/load_timeseries.csv',
-                'data_column': component_name,  # Now matches the CSV column name
-                'scaling_factor_multiplier': 'get_max_active_power',
-                'normalization_factor': 1.0
-            })
-        
-        logger.info(f"Exported load time series ({len(sienna_load_ts)} time steps, {len(sienna_load_ts.columns)} loads)")
-        logger.info(f"Renamed columns: {list(column_mapping.values())[:3]}...")  # Show first few
-        
-        return {'load_timeseries': str(load_ts_file)}
 
     def _export_branches(self, output_path: Path) -> Dict[str, str]:
         """Export transmission lines, transformers, and AC links as AC branches."""
@@ -1330,14 +1286,20 @@ class PyPSAToSiennaExporter:
         # FIX: Rename columns to match Load_ prefixed component names
         column_mapping = {}
         for original_load_name in sienna_load_ts.columns:
+
             new_column_name = f'Load_{original_load_name}'
             column_mapping[original_load_name] = new_column_name
+
+            ## Normalise values for each load component
+            sienna_load_ts[original_load_name] = sienna_load_ts[original_load_name]/np.max(sienna_load_ts[original_load_name])
+        
         
         # DEBUG: Log mapping
         logger.info(f"Column mapping: {column_mapping}")
         
         # Apply the column renaming
         sienna_load_ts = sienna_load_ts.rename(columns=column_mapping)
+
         
         # DEBUG: Log renamed columns
         logger.info(f"Renamed load time series columns: {list(sienna_load_ts.columns)}")
@@ -1358,7 +1320,6 @@ class PyPSAToSiennaExporter:
                 'label': 'max_active_power',
                 'data_file': 'timeseries_data/load_timeseries.csv',
                 'data_column': component_name,  # Should match CSV column
-                'scaling_factor_multiplier': 'get_max_active_power',
                 'normalization_factor': 1.0
             }
             
