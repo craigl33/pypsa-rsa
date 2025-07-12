@@ -829,8 +829,8 @@ def mock_snakemake(rulename, **wildcards):
         # Outputs
         snakemake.output = FlexibleNamespace()
         snakemake.output.dispatch_results = f"results/{folder}/dispatch/{scenario}/dispatch_{year}.nc"
-        snakemake.output.dispatch_stats = f"results/{folder}/dispatch_stats/{scenario}/dispatch_{year}.csv"
-        snakemake.output.sienna_export_dir = f"networks/sienna/{scenario}/dispatch_{year}/"
+        # snakemake.output.dispatch_stats = f"results/{folder}/dispatch_stats/{scenario}/dispatch_{year}.csv"
+        # snakemake.output.sienna_export_dir = f"networks/sienna/{scenario}/dispatch_{year}/"
 
     elif rulename == "export_to_sienna":
         """

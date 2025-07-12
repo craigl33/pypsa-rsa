@@ -218,9 +218,31 @@ solving:
       primal_feasibility_tolerance: 1e-5
       dual_feasibility_tolerance: 1e-5
       random_seed: 123
+        # NEW: PCM-optimized settings
+    highs-pcm:
+      solver: "simplex"
+      parallel: "on"
+      primal_feasibility_tolerance: 1e-5
+      dual_feasibility_tolerance: 1e-5
+      time_limit: 300
+      random_seed: 123
+      presolve: "on"
+      # Unit commitment settings
+      mip_feasibility_tolerance: 1e-5
+      mip_rel_gap: 0.01
+    # For testing/large systems
+    highs-pcm-fast:
+      solver: "simplex"
+      parallel: "on"
+      primal_feasibility_tolerance: 1e-4
+      dual_feasibility_tolerance: 1e-4
+      time_limit: 120
+      mip_rel_gap: 0.02
+      presolve: "on"
 
 sienna:
   enabled: true  # Set to true to enable Sienna export and simulation
+  export_ac_links: false # Development option to export AC links (i.e. dc branches converted)
   simulation_type: "economic_dispatch"  # or "unit_commitment"
   solver: "HiGHS"  # "HiGHS", "Gurobi", "CPLEX"
   horizon_days: 7
@@ -230,3 +252,14 @@ sienna:
   export_only: true  # If true, only export CSV files without running simulation
   compare_results: false  # Whether to compare PyPSA and Sienna results
   export_time_series: false  # Whether to include time series data
+
+  ## New settings for PCM runs.
+sequential_dispatch:
+  enable: true
+  rolling_horizon:
+    lookahead_hours: 24
+    unit_commitment: true
+  optimization:
+    solver: "highs"
+    solver_profile: "highs-pcm"  # or "highs-pcm-fast" for speed
+  horizon_length: 7 #days to run

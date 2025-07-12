@@ -38,6 +38,7 @@ class PyPSAToSiennaExporter:
     
     def __init__(self, network: pypsa.Network, scenario_setup: dict):
         """Initialize the exporter with enhanced validation."""
+        self.config =  snakemake.config
         self.network = network
         self.scenario_setup = scenario_setup
         self.base_power = 100.0  # MVA base for PowerSystems.jl
@@ -689,7 +690,13 @@ class PyPSAToSiennaExporter:
         
         # Add AC links (filter out DC links)
         if hasattr(self.network, 'links') and not self.network.links.empty:
-            ac_links = self._identify_ac_links()
+
+            if snakemake.config['sienna'].get('export_ac_links', False):
+                logger.info("Identifying AC links for export...")
+                ac_links = self._identify_ac_links()
+            else:
+                ac_links = pd.Series() # Empty Series if AC links are not exported
+            
             if not ac_links.empty:
                 ac_links_df = ac_links.copy()
                 ac_links_df['component_type'] = 'AC_Link'

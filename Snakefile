@@ -116,22 +116,21 @@ rule create_dispatch_networks:
     script:
         "scripts/create_dispatch_networks.py"
 
-# rule solve_network_dispatch:
-#     """
-#     Solve operational dispatch for a specific year using optimized capacities
-#     """
-#     input:
-#         dispatch_network="networks/" + config["scenarios"]["folder"] + "/elec/{scenario}/dispatch-{year}.nc",
-#         optimised_network_stats="results/" + config["scenarios"]["folder"] + "/network_stats/{scenario}.csv",
-#     output: 
-#         dispatch_results="results/" + config["scenarios"]["folder"] + "/dispatch/{scenario}/dispatch_{year}.nc",
-#         dispatch_stats="results/" + config["scenarios"]["folder"] + "/dispatch_stats/{scenario}/dispatch_{year}.csv"
-#         # Optional: Add Sienna output directory
-#         sienna_export_dir="networks/" + config["scenarios"]["folder"] + "/sienna/{scenario}/dispatch_{year}/"
-#     resources:
-#         solver_slots=1
-#     script:
-#         "scripts/solve_network_dispatch.py"
+rule solve_network_dispatch:
+    """
+    Solve operational dispatch for a specific year using optimized capacities
+    """
+    input:
+        dispatch_network="networks/" + config["scenarios"]["folder"] + "/elec/{scenario}/dispatch-{year}.nc",
+        optimised_network_stats="results/" + config["scenarios"]["folder"] + "/network_stats/{scenario}.csv",
+    output: 
+        dispatch_results="results/" + config["scenarios"]["folder"] + "/dispatch/dispatch_{year}.nc",
+        # dispatch_stats="results/" + config["scenarios"]["folder"] + "/dispatch_stats/dispatch_{year}.csv"
+
+    resources:
+        solver_slots=1
+    script:
+        "scripts/solve_network_dispatch.py"
 
 rule export_to_sienna:
     """

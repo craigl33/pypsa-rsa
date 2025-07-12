@@ -34,9 +34,16 @@ def create_dispatch_networks(capacity_network_path, base_network_path, output_pa
        logging.info(f"Creating dispatch network for year {year}")
        n_dispatch = pypsa.Network(base_network_path)
        add_missing_carriers(n_dispatch)
-    
+       # Fix capacities at optimized values for dispatch
+       fix_optimal_capacities(n_dispatch, n_capacity, year)
+       
+
        
        # Get snapshots for this year (full 8760 hours)
+       # Create the datetime range
+       # Create the year values (same length as datetime range)
+    
+       # Create MultiIndex       
        year_snapshots = pd.date_range(
            start=f"{year}-01-01 00:00", 
            end=f"{year}-12-31 23:00", 
@@ -44,11 +51,10 @@ def create_dispatch_networks(capacity_network_path, base_network_path, output_pa
        )
        # Remove leap day
        year_snapshots = year_snapshots[~((year_snapshots.month == 2) & (year_snapshots.day == 29))]
-
-
-       # Fix capacities at optimized values for dispatch
-       fix_optimal_capacities(n_dispatch, n_capacity, year)
-    
+       # Convert to MultiIndex
+       year_snapshots = pd.MultiIndex.from_arrays([[2030] * len(year_snapshots), year_snapshots], names=['year', 'datetime'])
+       year_snapshots.name = 'snapshot'
+       n_dispatch.set_snapshots(year_snapshots)
        
        # Set network name
        n_dispatch.name = f"Dispatch_{year}"
