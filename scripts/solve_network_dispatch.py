@@ -592,7 +592,7 @@ def apply_capacity_results_to_dispatch(n_dispatch, n_capacity, year):
 # MAIN SOLVE_NETWORK_DISPATCH FUNCTION
 # =============================================================================
 
-def solve_network_dispatch(n, sns, enable_unit_commitment=False, export_to_Sienna=False, sequential_mode=False):
+def solve_network_dispatch(n, sns, enable_unit_commitment=False, sequential_mode=False):
     """
     Main solve function supporting both single and sequential dispatch
     
@@ -604,8 +604,6 @@ def solve_network_dispatch(n, sns, enable_unit_commitment=False, export_to_Sienn
         Snapshots to optimize
     enable_unit_commitment : bool
         Enable unit commitment constraints
-    export_to_Sienna : bool
-        Export results to Sienna format
     sequential_mode : bool
         Flag indicating if called from sequential dispatch (prevents recursion)
         
@@ -614,15 +612,13 @@ def solve_network_dispatch(n, sns, enable_unit_commitment=False, export_to_Sienn
     dict or None : Results (for sequential mode) or None (for regular mode)
     """
     
-    # Check if we should run sequential dispatch instead
-    config = snakemake.config.get("sequential_dispatch", {})
-    if config.get("enable", False) and not sequential_mode:
+    if sequential_mode:
         logger.info("🔄 Sequential dispatch enabled - running rolling horizon optimization")
         return run_sequential_dispatch_workflow(n, sns, snakemake)
-    
-    # Run single optimization (existing functionality)
-    logger.info("🔧 Running single dispatch optimization")
-    return run_single_optimization(n, sns, enable_unit_commitment, export_to_Sienna)
+    else:
+        # Run single optimization (existing functionality)
+        logger.info("🔧 Running single dispatch optimization")
+        return run_single_optimization(n, sns, enable_unit_commitment)
 
 def run_sequential_dispatch_workflow(n, sns, snakemake):
     """
@@ -660,7 +656,7 @@ def run_sequential_dispatch_workflow(n, sns, snakemake):
     
     return results
 
-def run_single_optimization(n, sns, enable_unit_commitment, export_to_Sienna):
+def run_single_optimization(n, sns, enable_unit_commitment):
     """
     Run single optimization (original functionality)
     
@@ -678,6 +674,7 @@ def run_single_optimization(n, sns, enable_unit_commitment, export_to_Sienna):
     
     def extra_functionality(n, snapshots):
         """Add constraints for dispatch optimization"""
+
         if enable_unit_commitment:
             config = snakemake.config["electricity"]["dispatch_committable_carriers"]
             p_max_pu = set_existing_committable(n, snapshots, scenario_setup, config)
@@ -689,7 +686,6 @@ def run_single_optimization(n, sns, enable_unit_commitment, export_to_Sienna):
         param = load_extendable_parameters(n, scenario_setup, snakemake)
         annual_co2_constraints(n, snapshots, param, scenario_setup)
     
-    if not export_to_Sienna:
         solver_config = snakemake.config["solving"]
         solver_name = solver_config['solver']["name"]
         solver_options = solver_config["solver_options"][solver_config['solver'].get("options", {})]
@@ -704,10 +700,9 @@ def run_single_optimization(n, sns, enable_unit_commitment, export_to_Sienna):
             extra_functionality=extra_functionality,
             linearized_unit_commitment=enable_unit_commitment
         )
-    else:
-        logger.info("Exporting to Sienna format is not yet implemented.")
-        raise NotImplementedError
 
+        return n.results
+    
 def export_sequential_results(results, snakemake):
     """
     Export sequential dispatch results to files
@@ -825,25 +820,159 @@ def create_daily_summaries(results):
 # EXISTING FUNCTIONS (keep your original implementations)
 # =============================================================================
 
-def get_min_stable_level(n, model_setup, existing_carriers, extended_carriers):
-    # Your existing implementation
-    pass
+def get_min_stable_level(n, model_file, model_setup, existing_carriers, extended_carriers):
+    
+    existing_param = pd.read_excel(
+        model_file, 
+        sheet_name="fixed_conventional",
+        na_values=["-"],
+        index_col=[0,1]
+    ).loc[model_setup["fixed_conventional"]]
+    
+    existing_gens = n.generators.query("carrier in @existing_carriers & p_nom_extendable == False").index
+    existing_msl= existing_param.loc[existing_gens, "Min Stable Level (%)"].rename("p_min_pu")
+    
+    extended_param = pd.read_excel(
+        model_file, 
+        sheet_name = "extendable_parameters",
+        index_col = [0,2,1],
+    ).sort_index().loc[model_setup["extendable_parameters"]]
+
+    extended_gens = n.generators.query("carrier in @extended_carriers & p_nom_extendable").index
+    extended_msl = pd.Series(index=extended_gens, name = "p_min_pu")
+    for g in extended_gens:
+        carrier = g.split("-")[1]
+        y = int(g.split("-")[2])
+        if y in extended_param.columns:
+            extended_msl[g] = extended_param.loc[("min_stable_level", carrier), y].astype(float)
+        else:
+            interp_data = extended_param.loc[("min_stable_level", carrier), :].drop(["unit", "source"]).astype(float)
+            interp_data = interp_data.append(pd.Series(index=[y], data=[np.nan])).interpolate()
+            extended_msl[g] = interp_data.loc[y]
+
+    return existing_msl, extended_msl
+
 
 def set_max_status(n, sns, p_max_pu):
-    # Your existing implementation
-    pass
 
-def set_existing_committable(n, sns, model_setup, config):
-    # Your existing implementation
-    pass
+    # init period = 100h to let model stabilise status
+    if sns[0] == n.snapshots[0]:
+        init_periods=100
+        n.generators_t.p_max_pu.loc[
+            sns[:init_periods], p_max_pu.columns
+        ] = p_max_pu.loc[sns[:init_periods], :].values
+        
+        n.generators_t.p_min_pu.loc[:,p_max_pu.columns] = get_as_dense(n, "Generator", "p_min_pu").loc[:,p_max_pu.columns]
+        n.generators_t.p_min_pu.loc[
+            sns[:init_periods], p_max_pu.columns
+        ] = 0
+        sns = sns[init_periods:]
 
-def load_extendable_parameters(n, scenario_setup, snakemake):
-    # Your existing implementation
-    pass
+    active = get_activity_mask(n, "Generator", sns, p_max_pu.columns)
+    active.rename_axis("Generator-com", axis = 1, inplace = True)
+    p_max_pu = p_max_pu.loc[sns, active.any(axis=0)]
+    p_max_pu = p_max_pu.loc[sns, (p_max_pu != 1).any(axis=0)]
 
-def annual_co2_constraints(n, snapshots, param, scenario_setup):
-    # Your existing implementation
-    pass
+    status = n.model.variables["Generator-status"].sel({"Generator-com":p_max_pu.columns})
+    lhs = status.sel(snapshot=sns)
+    if p_max_pu.columns.name != "Generator-com":
+        p_max_pu.columns.name = "Generator-com"
+    rhs = DataArray(p_max_pu)
+    
+    n.model.add_constraints(lhs, "<=", rhs, name="max_status")
+
+def set_upper_combined_status_bus(n, sns, p_max_pu):
+
+    active = get_activity_mask(n, "Generator", sns, p_max_pu.columns)
+    active.rename_axis("Generator-com", axis = 1, inplace = True)
+    p_max_pu = p_max_pu.loc[sns, active.any(axis=0)]
+    p_max_pu = p_max_pu.loc[:, (p_max_pu != 1).any(axis=0)]
+
+    for bus_i in n.buses.index:
+        bus_gens = n.generators.query("bus == @bus_i").index.intersection(p_max_pu.columns)
+        if len(bus_gens) >= 0: 
+            p_nom = n.generators.loc[bus_gens, "p_nom"]
+            p_nom.name = "Generator-com"
+            status = n.model.variables["Generator-status"].sel({"snapshot":sns, "Generator-com":bus_gens})
+
+            p_nom_df = pd.DataFrame(index = sns, columns = p_nom.index)        
+            p_nom_df.loc[:] = p_nom.values
+            p_nom_df.rename_axis("Generator-com", axis = 1, inplace = True)
+
+            active.columns.name = "Generator-com"
+            lhs = (DataArray(p_nom_df) * status).sum("Generator-com")
+            rhs = (p_nom * p_max_pu[bus_gens]).sum(axis=1)
+            
+            n.model.add_constraints(lhs, "<=", rhs, name=f"{bus_i}-max_status")
+
+
+def set_upper_avg_status_over_sns(n, sns, p_max_pu):
+    
+    active = get_activity_mask(n, "Generator", sns, p_max_pu.columns)
+    active.rename_axis("Generator-com", axis = 1, inplace = True)
+    p_max_pu = p_max_pu.loc[sns, active.any(axis=0)]
+    p_max_pu = p_max_pu.loc[:, (p_max_pu != 1).any(axis=0)]
+
+    weightings = pd.DataFrame(index = sns, columns = p_max_pu.columns)
+    weight_values = n.snapshot_weightings.generators.loc[sns].values.reshape(-1, 1)
+    weightings.loc[:] = weight_values
+    weightings.rename_axis("Generator-com", axis = 1, inplace = True)
+
+    status = n.model.variables["Generator-status"].sel({"Generator-com":p_max_pu.columns, "snapshot":sns})
+    lhs = (status * weightings).sum("snapshot")
+    if p_max_pu.columns.name != "Generator-com":
+        p_max_pu.columns.name = "Generator-com"
+    rhs = (weightings * p_max_pu).sum()
+
+    n.model.add_constraints(lhs, "<=", rhs, name="upper_avg_status_sns")
+
+def set_max_status4(n, sns, p_max_pu):
+    
+    # init period = 100h to let model stabilise status
+    # if sns[0] == n.snapshots[0]:
+    #     init_periods=100
+    #     n.generators_t.p_max_pu.loc[
+    #         sns[:init_periods], p_max_pu.columns
+    #     ] = p_max_pu.loc[sns[:init_periods], :].values
+        
+    #     n.generators_t.p_min_pu.loc[:,p_max_pu.columns] = get_as_dense(n, "Generator", "p_min_pu").loc[:,p_max_pu.columns]
+    #     n.generators_t.p_min_pu.loc[
+    #         sns[:init_periods], p_max_pu.columns
+    #     ] = 0
+    #     sns = sns[init_periods:]
+
+    active = get_activity_mask(n, "Generator", sns, p_max_pu.columns)
+    p_max_pu = p_max_pu.loc[sns, active.any(axis=0)]
+
+    active.columns.name = "Generator-com"
+    status = n.model.variables["Generator-status"].sel({"Generator-com":p_max_pu.columns})
+    lhs = status.sel(snapshot=sns).groupby("snapshot.week").sum()
+    if p_max_pu.columns.name != "Generator-com":
+        p_max_pu.columns.name = "Generator-com"
+    rhs = p_max_pu.groupby(p_max_pu.index.isocalendar().week).sum()
+    
+    n.model.add_constraints(lhs, "<=", rhs, name="max_status")
+
+def set_existing_committable(n, sns, model_file, model_setup, config):
+
+    existing_carriers = config['existing']
+    existing_gen = n.generators.query("carrier in @existing_carriers & p_nom_extendable == False").index.to_list()
+
+    extended_carriers = config['extended']
+    extended_gen = n.generators.query("carrier in @extended_carriers & p_nom_extendable").index.to_list()
+    
+    n.generators.loc[existing_gen + extended_gen, "committable"] = True
+
+    p_max_pu = get_as_dense(n, "Generator", "p_max_pu", sns)[existing_gen + extended_gen].copy()
+    n.generators_t.p_max_pu.loc[:, existing_gen + extended_gen] = 1
+    n.generators.loc[existing_gen + extended_gen, "p_max_pu"] = 1
+
+    existing_msl, extended_msl = get_min_stable_level(n, model_file, model_setup, existing_carriers, extended_carriers)
+
+    n.generators.loc[existing_gen, "p_min_pu"] = existing_msl
+    n.generators.loc[extended_gen, "p_min_pu"] = extended_msl
+
+    return p_max_pu
 
 # Add other existing functions as needed...
 
@@ -865,8 +994,13 @@ if __name__ == "__main__":
     # Load network (could be capacity expansion results or dispatch network)
     n = pypsa.Network(snakemake.input.dispatch_network)
     scenario_setup = load_scenario_definition(snakemake)
+    config = snakemake.config.get("sequential_dispatch", {})
+
+    # Check if we should run sequential dispatch instead
+    sequential_mode = config.get("enable", False)
+    enable_unit_commitment = config.get("enable_unit_commitment", False)
     
     # Run dispatch (will automatically choose sequential or single based on config)
-    solve_network_dispatch(n, n.snapshots)
-    
+    solve_network_dispatch(n, n.snapshots, enable_unit_commitment=enable_unit_commitment, sequential_mode=sequential_mode)
+
     logger.info("✅ Dispatch optimization completed")

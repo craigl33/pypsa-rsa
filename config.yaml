@@ -256,9 +256,10 @@ sienna:
   ## New settings for PCM runs.
 sequential_dispatch:
   enable: true
+  unit_commitment: false
   rolling_horizon:
     lookahead_hours: 24
-    unit_commitment: true
+    unit_commitment: false
   optimization:
     solver: "highs"
     solver_profile: "highs-pcm"  # or "highs-pcm-fast" for speed
