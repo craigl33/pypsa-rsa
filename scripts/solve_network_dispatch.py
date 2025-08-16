@@ -81,20 +81,15 @@ def run_builtin_rolling_horizon(n, scenario_setup, snakemake):
     config = snakemake.config.get("sequential_dispatch", {})
     
     # Get parameters with corrected terminology
-    # horizon_length_hours = config.get("horizon_length_hours", 48)
     interval_length_hours = config.get("interval_length_hours", 24)  
     overlap_hours = config.get("overlap_hours", 24)
     horizon_length_hours = interval_length_hours + overlap_hours  # Total window length
     
     # Retrieve snapshot window parameters
-    # These are used to define the rolling horizon, if not specified, default to the whole horizon
     total_steps = config.get("total_steps", None)  # Number of steps in the rolling horizon
     initial_time = config.get("initial_time", None)  # Initial time for the rolling horizon
 
-    # Validation
-    horizon_length_hours = interval_length_hours + overlap_hours
-
-        # Convert hours to number of snapshots (PyPSA built-in expects integers, not Timedelta)
+    # Convert hours to number of snapshots (PyPSA built-in expects integers, not Timedelta)
     if isinstance(n.snapshots, pd.MultiIndex):
         # Multi-investment period network
         sample_snapshots = n.snapshots.get_level_values(1)[:10]
@@ -104,15 +99,15 @@ def run_builtin_rolling_horizon(n, scenario_setup, snakemake):
     
     try:
         snapshot_freq = pd.infer_freq(sample_snapshots)
-        if snapshot_freq.upper() == 'H' or snapshot_freq.upper() == '1H':
+        if snapshot_freq and snapshot_freq.upper() in ['H', '1H']:
             # Hourly snapshots
             horizon_snapshots = horizon_length_hours
             overlap_snapshots = overlap_hours
-        elif snapshot_freq.upper() == '3H':
+        elif snapshot_freq and snapshot_freq.upper() == '3H':
             # 3-hourly snapshots
             horizon_snapshots = horizon_length_hours // 3
             overlap_snapshots = overlap_hours // 3
-        elif snapshot_freq.upper() == '6H':
+        elif snapshot_freq and snapshot_freq.upper() == '6H':
             # 6-hourly snapshots  
             horizon_snapshots = horizon_length_hours // 6
             overlap_snapshots = overlap_hours // 6
@@ -142,25 +137,30 @@ def run_builtin_rolling_horizon(n, scenario_setup, snakemake):
         """Add dispatch constraints"""
         add_dispatch_constraints(network, snapshots, scenario_setup, snakemake)
     
+    # Set up snapshot window
+    snapshot_window = n.snapshots  # Default to all snapshots
     
     if initial_time is not None and total_steps is not None:
         # Set initial time and total steps for rolling horizon
         logger.info(f"Initial time: {initial_time}, Total steps: {total_steps}")
         initial_time = pd.Timestamp(initial_time)
-        end_time = initial_time + pd.Timedelta(total_steps * interval_length_hours, snapshot_freq)
+        end_time = initial_time + pd.Timedelta(hours=total_steps * interval_length_hours)
 
         if isinstance(n.snapshots, pd.MultiIndex):
             # MultiIndex snapshots
-            snapshot_window = n.snapshots[(n.snapshots.get_level_values(1) >= initial_time) & (n.snapshots.get_level_values(1) < end_time)]
+            snapshot_window = n.snapshots[(n.snapshots.get_level_values(1) >= initial_time) & 
+                                        (n.snapshots.get_level_values(1) < end_time)]
         else:
             # SingleIndex snapshots
-            snapshot_window = n.snapshots[(n.snapshots >= initial_time) & (n.snapshots < end_time)]
+            snapshot_window = n.snapshots[(n.snapshots >= initial_time) & 
+                                        (n.snapshots < end_time)]
 
     try:
-        # Use PyPSA's built-in rolling horizon optimization but with logging monitoring for progress bar
-        ## Previously was just n.optimize.optimize_with_rolling_horizon(snapshot_window,...etc.)
-            n.optimize.optimize_with_rolling_horizon(
-            snapshots=snapshot_window,  # Use the defined snapshot window
+        # Use PyPSA's built-in rolling horizon optimization
+        logger.info(f"Starting rolling horizon optimization with {len(snapshot_window)} snapshots")
+        
+        n.optimize.optimize_with_rolling_horizon(
+            snapshots=snapshot_window,
             horizon=horizon_snapshots,    # INTEGER: number of snapshots
             overlap=overlap_snapshots,    # INTEGER: number of snapshots  
             solver_name=solver_name,
@@ -168,6 +168,9 @@ def run_builtin_rolling_horizon(n, scenario_setup, snakemake):
             extra_functionality=extra_functionality,
             linearized_unit_commitment=config.get("rolling_horizon", {}).get("unit_commitment", False)
         )
+        
+        logger.info("✅ Built-in rolling horizon optimization completed successfully")
+        
     except Exception as e:
         logger.error(f"Built-in rolling horizon failed: {e}")
         logger.info("Falling back to manual implementation")
@@ -360,90 +363,6 @@ def add_dispatch_constraints(n, snapshots, scenario_setup, snakemake):
     except Exception as e:
         logger.warning(f"Operational constraints failed: {e}")
 
-
-    """
-    Monkey patch PyPSA's optimize method to add progress tracking
-    
-    This temporarily replaces n.optimize to add progress tracking,
-    then restores the original method.
-    """
-    
-    if snapshots is None:
-        snapshots = n.snapshots
-    
-    # Calculate expected iterations
-    total_snapshots = len(snapshots)
-    dispatch_interval = horizon - overlap
-    expected_iterations = max(1, int(np.ceil((total_snapshots - overlap) / dispatch_interval)))
-    
-    print(f"🔄 Rolling Horizon with Monkey Patching")
-    print(f"   Expected iterations: {expected_iterations}")
-    print()
-    
-    # Create progress bar
-    pbar = tqdm(
-        total=expected_iterations,
-        desc="Rolling Horizon",
-        unit="iteration",
-        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {postfix}"
-    )
-    
-    # Store original optimize method
-    original_optimize = n.optimize.__class__.__call__
-    iteration_count = [0]  # Use list for mutable reference
-    
-    def tracked_optimize(self, *args, **kwargs):
-        """Replacement optimize method with progress tracking"""
-        iteration_count[0] += 1
-        
-        # Extract snapshots info if available
-        opt_snapshots = kwargs.get('snapshots', args[0] if args else None)
-        if opt_snapshots is not None and len(opt_snapshots) > 0:
-            start_time_str = str(opt_snapshots[0])[:16]
-            pbar.set_postfix_str(f"Iter {iteration_count[0]}: {start_time_str}")
-        else:
-            pbar.set_postfix_str(f"Iteration {iteration_count[0]}")
-        
-        # Call original optimize method
-        start_time = time.time()
-        result = original_optimize(self, *args, **kwargs)
-        solve_time = time.time() - start_time
-        
-        # Update progress
-        pbar.set_postfix_str(f"Iter {iteration_count[0]}: {solve_time:.1f}s")
-        pbar.update(1)
-        
-        return result
-    
-    # Apply monkey patch
-    n.optimize.__class__.__call__ = tracked_optimize
-    
-    try:
-        # Run PyPSA's built-in rolling horizon
-        start_time = time.time()
-        result = n.optimize.optimize_with_rolling_horizon(
-            snapshots=snapshots,
-            horizon=horizon,
-            overlap=overlap,
-            **kwargs
-        )
-        
-        # Complete progress bar if needed
-        pbar.update(expected_iterations - pbar.n)
-        pbar.set_postfix_str(f"Completed in {time.time() - start_time:.1f}s")
-        pbar.close()
-        
-        print("✅ Rolling horizon optimization completed!")
-        return result
-        
-    except Exception as e:
-        pbar.set_postfix_str(f"❌ Error: {str(e)[:20]}")
-        pbar.close()
-        raise e
-    
-    finally:
-        # Restore original optimize method
-        n.optimize.__class__.__call__ = original_optimize
 # =============================================================================
 # PLACEHOLDER CONSTRAINT FUNCTIONS (add your implementations)
 # =============================================================================
