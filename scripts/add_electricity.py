@@ -1681,6 +1681,7 @@ def convert_lines_to_links(n):
             length = n.lines.length,
             capital_cost = n.lines.capital_cost,
             p_nom_extendable = extendable,
+            carrier = "AC"
         )
         if y == years[0]:
             extendable = True

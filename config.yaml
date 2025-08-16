@@ -218,9 +218,31 @@ solving:
       primal_feasibility_tolerance: 1e-5
       dual_feasibility_tolerance: 1e-5
       random_seed: 123
+        # NEW: PCM-optimized settings
+    highs-pcm:
+      solver: "simplex"
+      parallel: "on"
+      primal_feasibility_tolerance: 1e-5
+      dual_feasibility_tolerance: 1e-5
+      time_limit: 300
+      random_seed: 123
+      presolve: "on"
+      # Unit commitment settings
+      mip_feasibility_tolerance: 1e-5
+      mip_rel_gap: 0.01
+    # For testing/large systems
+    highs-pcm-fast:
+      solver: "simplex"
+      parallel: "on"
+      primal_feasibility_tolerance: 1e-4
+      dual_feasibility_tolerance: 1e-4
+      time_limit: 120
+      mip_rel_gap: 0.02
+      presolve: "on"
 
 sienna:
   enabled: true  # Set to true to enable Sienna export and simulation
+  export_ac_links: false # Development option to export AC links (i.e. dc branches converted)
   simulation_type: "economic_dispatch"  # or "unit_commitment"
   solver: "HiGHS"  # "HiGHS", "Gurobi", "CPLEX"
   horizon_days: 7
@@ -230,3 +252,62 @@ sienna:
   export_only: true  # If true, only export CSV files without running simulation
   compare_results: false  # Whether to compare PyPSA and Sienna results
   export_time_series: false  # Whether to include time series data
+
+# ============================================================================
+# CORRECTED SEQUENTIAL DISPATCH CONFIGURATION 
+# Uses proper rolling horizon terminology
+# ============================================================================
+
+sequential_dispatch:
+  enable: true                          # Set to true to enable rolling horizon dispatch
+  unit_commitment: false                # Global unit commitment setting
+  
+  # Rolling horizon parameters - CORRECTED TERMINOLOGY
+  interval_length_hours: 24             # Step size - how far to move forward each iteration
+  overlap_hours: 24                     # Lookahead beyond the interval
+  total_steps: 7
+  initial_time: "2030-01-01"            # Initial time for the rolling horizon
+
+  rolling_horizon:
+    unit_commitment: false              # Unit commitment within rolling horizon
+    
+  # Solver configuration
+  optimization:
+    solver: "highs"
+    solver_profile: "highs-pcm"         # or "highs-pcm-fast" for speed
+
+# ============================================================================
+# TERMINOLOGY EXPLANATION
+# ============================================================================
+
+# CORRECT RELATIONSHIP:
+# horizon_length_hours = interval_length_hours + overlap_hours
+# 48 = 24 + 24
+
+# EXAMPLES:
+# =========
+
+# Example 1: Daily dispatch with 24h lookahead (your original)
+# horizon_length_hours: 48    # Total window: 2 days
+# interval_length_hours: 24   # Move forward: 24h (daily)
+# overlap_hours: 24           # Lookahead: 24h
+# Result: Optimize 48h (today + tomorrow), use first 24h, move forward 24h
+
+# Example 2: Weekly dispatch with daily overlap
+# horizon_length_hours: 168   # Total window: 7 days  
+# interval_length_hours: 144  # Move forward: 6 days
+# overlap_hours: 24           # Lookahead: 1 day
+# Result: Optimize 7 days, use first 6 days, move forward 6 days
+
+# Example 3: 6-hourly dispatch with 18h lookahead
+# horizon_length_hours: 24    # Total window: 1 day
+# interval_length_hours: 6    # Move forward: 6h
+# overlap_hours: 18           # Lookahead: 18h  
+# Result: Optimize 24h, use first 6h, move forward 6h
+
+# MAPPING TO PYPSA PARAMETERS:
+# ============================
+# PyPSA's optimize_with_rolling_horizon expects:
+# - horizon_length = pd.Timedelta(hours=horizon_length_hours)
+# - overlap = pd.Timedelta(hours=overlap_hours)
+# - interval = horizon_length - overlap (calculated automatically)

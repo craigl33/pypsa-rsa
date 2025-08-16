@@ -164,6 +164,7 @@ def add_components_to_network(n, buses, lines, line_config):
             lifetime = 100,
             build_year = n.investment_periods[0]-1,
             p_nom_extendable = False,
+            carrier="AC"
         )
         
 def get_years():
