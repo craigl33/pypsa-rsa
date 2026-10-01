@@ -1,0 +1,1110 @@
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 15:35:14 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 15:57:11 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 16:17:50 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 16:18:19 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 16:51:29 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:01:20 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:04:18 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:05:51 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:07:47 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:23:06 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:23:32 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:25:08 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:25:32 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:29:43 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:29:56 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:32:13 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:32:23 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:47:13 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  3 17:47:54 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun  4 11:45:28 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun  4 11:49:13 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun  4 11:50:32 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun  4 11:53:59 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun  4 12:03:20 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun  4 13:16:57 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun  4 18:14:44 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 14:13:13 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 14:13:20 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 15:20:00 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 15:30:22 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 15:34:53 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 15:52:00 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 16:04:10 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 16:04:58 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 16:05:14 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 16:05:25 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 16:10:19 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 16:14:48 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 16:24:54 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 17:08:18 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 17:51:50 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 18:03:52 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 18:04:57 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 18:07:55 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 18:12:30 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 18:12:40 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 18:14:43 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 18:27:02 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 18:35:31 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 18:39:17 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:04:08 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:05:56 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:07:37 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:15:16 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:17:39 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:20:33 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:39:35 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:41:28 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:42:18 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:44:33 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:47:40 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:49:52 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:50:43 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:52:13 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:52:52 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 19:54:06 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 20:02:52 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 20:06:37 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 20:07:09 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 20:07:31 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 20:10:25 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 20:11:53 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 20:13:32 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 20:34:34 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 20:37:35 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun  5 20:50:06 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 00:00:14 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 00:15:14 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 00:39:01 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 13:53:05 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 13:58:13 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:17:45 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:18:31 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:19:29 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:20:35 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:23:11 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:24:49 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:27:54 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:33:17 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:33:48 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:35:58 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:38:30 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 14:40:00 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 15:01:39 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 15:02:26 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 15:02:52 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 15:31:14 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 16:15:07 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 16:18:24 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 16:57:52 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 16:58:50 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 17:00:50 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 17:02:13 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 17:05:09 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 17:06:07 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 17:06:31 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 17:08:12 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 17:08:32 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 17:08:36 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 17:09:18 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 17:09:36 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 18:09:12 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 18:09:30 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 18:09:37 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Fri Jun  6 18:22:40 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun 11 12:49:20 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun 11 12:54:47 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun 11 12:55:37 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun 11 12:57:15 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun 11 13:03:47 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun 11 13:09:37 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun 11 13:11:10 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun 11 13:21:50 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun 11 13:35:16 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun 12 01:14:01 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun 12 01:15:07 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun 12 01:16:36 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun 12 01:18:43 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun 12 01:21:10 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun 12 01:23:25 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun 12 01:25:00 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Thu Jun 12 01:26:07 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 15:17:02 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 15:19:47 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 15:21:08 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 15:26:20 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 15:31:01 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 16:10:33 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 16:11:21 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 16:27:07 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 16:31:17 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 16:38:43 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 16:39:11 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 16:43:25 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 22:22:37 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Mon Jun 16 23:52:37 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun 17 00:00:04 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun 17 00:00:17 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun 18 19:52:16 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Wed Jun 18 19:52:57 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 13:43:16 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:21:40 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:22:54 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:23:58 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:24:17 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:24:28 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:24:30 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:29:04 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:34:49 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:46:33 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:51:55 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:54:41 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:56:18 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:57:15 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:57:58 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 14:58:24 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:00:14 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:02:12 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:02:40 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:04:11 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:05:57 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:08:27 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:09:53 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:11:05 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:34:47 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:35:20 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:39:48 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 15:42:15 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 16:22:50 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 16:23:18 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 16:26:47 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 16:28:19 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 16:29:19 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 16:34:39 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Sun Jul  6 16:35:25 2025
+
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/clhar/anaconda3/envs/pypsa-rsa/lib/gurobi.lic
+Restricted license - for non-production use only - expires 2026-11-23

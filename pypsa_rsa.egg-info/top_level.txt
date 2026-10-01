@@ -1,0 +1,15 @@
+backups
+bash_scripts
+data
+docs
+envs
+gis
+licenses
+networks
+notebooks
+pre_processing
+pypsa_rsa_scripts
+resources
+results
+scenarios
+scripts
